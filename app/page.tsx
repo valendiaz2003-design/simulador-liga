@@ -1266,11 +1266,13 @@ function Zone({
     const mainTeam = featuredMatch?.winner ?? featuredMatch?.home ?? leader?.team ?? "La fecha";
     const rivalTeam = featuredMatch?.winner === featuredMatch?.home ? featuredMatch?.away : featuredMatch?.home;
     const loserTeam =
-      featuredMatch?.winner === featuredMatch?.home
-        ? featuredMatch.away
-        : featuredMatch?.winner === featuredMatch?.away
-          ? featuredMatch.home
-          : null;
+  featuredMatch?.winner && featuredMatch?.home && featuredMatch?.away
+    ? featuredMatch.winner === featuredMatch.home
+      ? featuredMatch.away
+      : featuredMatch.winner === featuredMatch.away
+        ? featuredMatch.home
+        : null
+    : null;
     const contextLine = buildSizeContextLine({
       winner: featuredMatch?.winner,
       loser: loserTeam,
