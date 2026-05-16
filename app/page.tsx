@@ -28,6 +28,35 @@ type Row = {
   dg: number;
 };
 
+type CupMatch = {
+  home: string;
+  away: string;
+  hg: number | null;
+  ag: number | null;
+  winner: string | null;
+};
+
+type CupRound = {
+  name: string;
+  matches: CupMatch[];
+};
+
+type CupTournament = {
+  rounds: CupRound[];
+  currentRoundIndex: number;
+  champion: string | null;
+};
+
+type ClubStats = {
+  team: string;
+  titles: number;
+  cupTitles: number;
+  seasons: number;
+  relegations: number;
+  promotions: number;
+  historicalPoints: number;
+};
+
 type SeasonRecord = {
   year: number;
   primera: Row[];
@@ -38,6 +67,8 @@ type SeasonRecord = {
   relegatedByAverage?: Row;
   promoted: Row[];
   champion: Row;
+  cupChampion?: string | null;
+  cupRounds?: CupRound[];
 };
 
 type AverageRow = {
@@ -50,7 +81,7 @@ type AverageRow = {
 
 type LeagueKey = "primera" | "b";
 type ThemeMode = "dark" | "light";
-type TabKey = "inicio" | "fixture" | "historica" | "campeonatos" | "promedios" | "movimientos" | "anios";
+type TabKey = "inicio" | "fixture" | "historica" | "campeonatos" | "promedios" | "movimientos" | "copa" | "clubes" | "anios";
 
 type SavedGame = {
   year: number;
@@ -65,6 +96,7 @@ type SavedGame = {
   activeLeague: LeagueKey;
   tab: TabKey;
   theme: ThemeMode;
+  cup?: CupTournament;
 };
 
 const STORAGE_KEY = "liga-manager-save-v2";
@@ -306,6 +338,105 @@ function getAverageRows(history: SeasonRecord[], currentTable: Row[]): AverageRo
     .sort((a, b) => b.promedio - a.promedio || b.pts - a.pts || a.team.localeCompare(b.team));
 }
 
+function generateCup(teams: string[]): CupTournament {
+  const shuffled = shuffle(teams).slice(0, 32);
+  const names = ["16avos", "Octavos", "Cuartos", "Semifinal", "Final"];
+  const rounds: CupRound[] = names.map((name) => ({ name, matches: [] }));
+
+  rounds[0].matches = [];
+  for (let i = 0; i < shuffled.length; i += 2) {
+    rounds[0].matches.push({ home: shuffled[i], away: shuffled[i + 1], hg: null, ag: null, winner: null });
+  }
+
+  return { rounds, currentRoundIndex: 0, champion: null };
+}
+
+function cupMatchWinner(match: CupMatch) {
+  if (match.hg === null || match.ag === null) return null;
+  if (match.hg === match.ag) return match.winner;
+  return match.hg > match.ag ? match.home : match.away;
+}
+
+function advanceCup(cup: CupTournament): CupTournament {
+  const nextCup: CupTournament = {
+    ...cup,
+    rounds: cup.rounds.map((round) => ({ ...round, matches: round.matches.map((match) => ({ ...match })) })),
+  };
+
+  const current = nextCup.rounds[nextCup.currentRoundIndex];
+  if (!current || current.matches.length === 0) return nextCup;
+
+  const winners = current.matches.map(cupMatchWinner);
+  if (winners.some((winner) => !winner)) return nextCup;
+
+  if (nextCup.currentRoundIndex === nextCup.rounds.length - 1) {
+    nextCup.champion = winners[0] ?? null;
+    return nextCup;
+  }
+
+  const nextRound = nextCup.rounds[nextCup.currentRoundIndex + 1];
+  if (nextRound.matches.length === 0) {
+    for (let i = 0; i < winners.length; i += 2) {
+      nextRound.matches.push({ home: winners[i]!, away: winners[i + 1]!, hg: null, ag: null, winner: null });
+    }
+  }
+
+  nextCup.currentRoundIndex += 1;
+  return nextCup;
+}
+
+function simulateCupResult(home: string, away: string): Pick<CupMatch, "hg" | "ag" | "winner"> {
+  const hg = simulateGoals(home, away);
+  const ag = simulateGoals(away, home);
+  const winner = hg > ag ? home : ag > hg ? away : Math.random() > 0.5 ? home : away;
+
+  return { hg, ag, winner };
+}
+
+function simulateWholeCup(cup: CupTournament): CupTournament {
+  let nextCup: CupTournament = {
+    ...cup,
+    rounds: cup.rounds.map((round) => ({ ...round, matches: round.matches.map((match) => ({ ...match })) })),
+  };
+
+  while (!nextCup.champion) {
+    const round = nextCup.rounds[nextCup.currentRoundIndex];
+    if (!round) break;
+
+    round.matches = round.matches.map((match) => {
+      if (match.hg !== null && match.ag !== null && match.winner) return match;
+      return { ...match, ...simulateCupResult(match.home, match.away) };
+    });
+
+    const advanced = advanceCup(nextCup);
+    if (advanced === nextCup && !advanced.champion) break;
+    nextCup = advanced;
+  }
+
+  return nextCup;
+}
+
+function cupStageName(round?: CupRound) {
+  const count = round?.matches.length ?? 0;
+  if (count >= 16) return "16avos";
+  if (count === 8) return "Octavos";
+  if (count === 4) return "Cuartos";
+  if (count === 2) return "Semifinal";
+  if (count === 1) return "Final";
+  return "Pendiente";
+}
+
+function generateNews(table: Row[], champion?: string, cupChampion?: string | null) {
+  const news: string[] = [];
+
+  if (table[0]) news.push(`${table[0].team} lidera el campeonato.`);
+  if (table[table.length - 1]) news.push(`${table[table.length - 1].team} está último en la tabla.`);
+  if (champion) news.push(`${champion} salió campeón de la Liga Profesional.`);
+  if (cupChampion) news.push(`${cupChampion} ganó la Copa Argentina.`);
+
+  return shuffle(news).slice(0, 3);
+}
+
 function getRelegations(history: SeasonRecord[], finalTable: Row[]) {
   const byTable = finalTable[finalTable.length - 1];
   const averageRows = getAverageRows(history, finalTable);
@@ -314,8 +445,9 @@ function getRelegations(history: SeasonRecord[], finalTable: Row[]) {
   return { byTable, byAverage, relegated: [byTable, byAverage] };
 }
 
-function TeamLogo({ team, size = "md" }: { team: string; size?: "xs" | "sm" | "md" | "lg" | "xl" }) {
-  const logo = logos[team];
+function TeamLogo({ team, size = "md" }: { team?: string; size?: "xs" | "sm" | "md" | "lg" | "xl" }) {
+  const safeTeam = team ?? "-";
+  const logo = logos[safeTeam];
   const sizeClass = {
     xs: "h-4 w-4",
     sm: "h-5 w-5",
@@ -327,7 +459,7 @@ function TeamLogo({ team, size = "md" }: { team: string; size?: "xs" | "sm" | "m
   if (!logo) {
     return (
       <div className={`${sizeClass} rounded-full bg-slate-600/60 border border-white/15 shrink-0 grid place-items-center text-[10px] font-black text-white/75`}>
-        {team.slice(0, 1)}
+        {safeTeam.slice(0, 1)}
       </div>
     );
   }
@@ -335,7 +467,7 @@ function TeamLogo({ team, size = "md" }: { team: string; size?: "xs" | "sm" | "m
   return (
     <img
       src={logo}
-      alt={team}
+      alt={safeTeam}
       className={`${sizeClass} object-contain shrink-0 drop-shadow-sm`}
       onError={(event) => {
         event.currentTarget.style.display = "none";
@@ -358,18 +490,34 @@ function TournamentLogo({ league }: { league: LeagueKey }) {
   );
 }
 
-function TeamName({ team, align = "left", small = false }: { team: string; align?: "left" | "right"; small?: boolean }) {
+function CupLogo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
+  const sizeClass = size === "lg" ? "h-14 w-14" : size === "sm" ? "h-8 w-8" : "h-12 w-12";
+
+  return (
+    <img
+      src="/tournaments/copa-argentina.png"
+      alt="Copa Argentina"
+      className={`${sizeClass} object-contain rounded-xl bg-white/90 p-1`}
+      onError={(event) => {
+        event.currentTarget.style.display = "none";
+      }}
+    />
+  );
+}
+
+function TeamName({ team, align = "left", small = false }: { team?: string; align?: "left" | "right"; small?: boolean }) {
+  const safeTeam = team ?? "-";
   return (
     <div className={`flex items-center gap-2 min-w-0 ${align === "right" ? "justify-end text-right" : "justify-start text-left"}`}>
       {align === "right" ? (
         <>
-          <span className="truncate">{team}</span>
-          <TeamLogo team={team} size={small ? "sm" : "md"} />
+          <span className="truncate">{safeTeam}</span>
+          <TeamLogo team={safeTeam} size={small ? "sm" : "md"} />
         </>
       ) : (
         <>
-          <TeamLogo team={team} size={small ? "sm" : "md"} />
-          <span className="truncate">{team}</span>
+          <TeamLogo team={safeTeam} size={small ? "sm" : "md"} />
+          <span className="truncate">{safeTeam}</span>
         </>
       )}
     </div>
@@ -518,10 +666,12 @@ function Zone({
   }
 
   function simulateMatch(match: Match) {
+    playSound("match");
     updateMatch(match.id, simulateGoals(match.home, match.away), simulateGoals(match.away, match.home));
   }
 
   function simulateRound() {
+    playSound("match");
     setFixture((old) => old.map((round) => round.round === currentRound.round ? { ...round, matches: round.matches.map((match) => simulateOne(match)) } : round));
   }
 
@@ -752,6 +902,48 @@ function RelegationPreview({ history, table }: { history: SeasonRecord[]; table:
   );
 }
 
+function playSound(type: "click" | "champion" | "match" | "season" = "click") {
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const audio = new AudioContextClass();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+
+    oscillator.type = type === "champion" || type === "season" ? "triangle" : type === "match" ? "square" : "sine";
+    oscillator.frequency.value = type === "season" ? 523 : type === "champion" ? 660 : type === "match" ? 260 : 420;
+    gain.gain.value = type === "match" ? 0.035 : 0.045;
+
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start();
+
+    if (type === "season") {
+      oscillator.frequency.setValueAtTime(523, audio.currentTime);
+      oscillator.frequency.setValueAtTime(659, audio.currentTime + 0.13);
+      oscillator.frequency.setValueAtTime(784, audio.currentTime + 0.26);
+      oscillator.frequency.setValueAtTime(1046, audio.currentTime + 0.42);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.85);
+      oscillator.stop(audio.currentTime + 0.86);
+    } else if (type === "champion") {
+      oscillator.frequency.setValueAtTime(660, audio.currentTime);
+      oscillator.frequency.setValueAtTime(880, audio.currentTime + 0.12);
+      oscillator.frequency.setValueAtTime(1040, audio.currentTime + 0.24);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.55);
+      oscillator.stop(audio.currentTime + 0.56);
+    } else if (type === "match") {
+      oscillator.frequency.setValueAtTime(260, audio.currentTime);
+      oscillator.frequency.setValueAtTime(180, audio.currentTime + 0.07);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.18);
+      oscillator.stop(audio.currentTime + 0.19);
+    } else {
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.12);
+      oscillator.stop(audio.currentTime + 0.13);
+    }
+  } catch {
+    // Sound is optional. Some browsers block audio in specific contexts.
+  }
+}
+
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [tab, setTab] = useState<TabKey>("inicio");
@@ -767,6 +959,8 @@ export default function Home() {
   const [history, setHistory] = useState<SeasonRecord[]>([]);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [summary, setSummary] = useState<SeasonRecord | null>(null);
+  const [cup, setCup] = useState<CupTournament>(() => generateCup([...initialPrimera, ...initialB]));
+  const [selectedClub, setSelectedClub] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -785,6 +979,7 @@ export default function Home() {
         setActiveLeague(data.activeLeague ?? "primera");
         setTab(data.tab ?? "inicio");
         setTheme(data.theme ?? "dark");
+        setCup(data.cup ?? generateCup([...(data.primeraTeams ?? initialPrimera), ...(data.bTeams ?? initialB)]));
       } else {
         setFixtureA(generateFixture(initialPrimera));
         setFixtureB(generateFixture(initialB));
@@ -799,9 +994,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!mounted || fixtureA.length === 0 || fixtureB.length === 0) return;
-    const data: SavedGame = { year, primeraTeams, bTeams, fixtureA, fixtureB, roundIndexA, roundIndexB, history, selectedYear, activeLeague, tab, theme };
+    const data: SavedGame = { year, primeraTeams, bTeams, fixtureA, fixtureB, roundIndexA, roundIndexB, history, selectedYear, activeLeague, tab, theme, cup };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [mounted, year, primeraTeams, bTeams, fixtureA, fixtureB, roundIndexA, roundIndexB, history, selectedYear, activeLeague, tab, theme]);
+  }, [mounted, year, primeraTeams, bTeams, fixtureA, fixtureB, roundIndexA, roundIndexB, history, selectedYear, activeLeague, tab, theme, cup]);
 
   const tableA = useMemo(() => buildTable(primeraTeams, fixtureA), [primeraTeams, fixtureA]);
   const tableB = useMemo(() => buildTable(bTeams, fixtureB), [bTeams, fixtureB]);
@@ -822,6 +1017,49 @@ export default function Home() {
     });
     return Array.from(set).sort();
   }, [history, primeraTeams, bTeams]);
+
+  const news = useMemo(() => generateNews(tableA, history[history.length - 1]?.champion.team, cup.champion), [tableA, history, cup]);
+
+  const clubStats = useMemo(() => {
+    const stats: Record<string, ClubStats> = {};
+
+    [...initialPrimera, ...initialB].forEach((team) => {
+      stats[team] = {
+        team,
+        titles: 0,
+        cupTitles: 0,
+        seasons: 0,
+        relegations: 0,
+        promotions: 0,
+        historicalPoints: 0,
+      };
+    });
+
+    history.forEach((season) => {
+      season.primera.forEach((row) => {
+        if (!stats[row.team]) return;
+        stats[row.team].historicalPoints += row.pts;
+        stats[row.team].seasons += 1;
+      });
+
+      stats[season.champion.team].titles += 1;
+      if (season.cupChampion && stats[season.cupChampion]) stats[season.cupChampion].cupTitles += 1;
+
+      season.relegated.forEach((r) => {
+        if (stats[r.team]) stats[r.team].relegations += 1;
+      });
+
+      season.promoted.forEach((p) => {
+        if (stats[p.team]) stats[p.team].promotions += 1;
+      });
+    });
+
+    if (cup.champion && stats[cup.champion]) {
+      stats[cup.champion].cupTitles += 1;
+    }
+
+    return Object.values(stats).sort((a, b) => b.historicalPoints - a.historicalPoints);
+  }, [history, cup]);
 
   const historicalTable = useMemo(() => {
     const total: Record<string, Row> = {};
@@ -844,7 +1082,8 @@ export default function Home() {
     return <main className="min-h-screen bg-[#071015] text-white flex items-center justify-center"><p className="text-xl font-bold">Cargando simulador...</p></main>;
   }
 
-  function closeSeason(nextFixtureA = fixtureA, nextFixtureB = fixtureB) {
+  function closeSeason(nextFixtureA = fixtureA, nextFixtureB = fixtureB, nextCup = cup) {
+    const finalCup = nextCup.champion ? nextCup : simulateWholeCup(nextCup);
     const finalTableA = buildTable(primeraTeams, nextFixtureA);
     const finalTableB = buildTable(bTeams, nextFixtureB);
     const top3 = finalTableA.slice(0, 3);
@@ -860,10 +1099,13 @@ export default function Home() {
       relegatedByAverage: byAverage,
       promoted,
       champion: finalTableA[0],
+      cupChampion: finalCup.champion,
+      cupRounds: finalCup.rounds,
     };
 
     setHistory((old) => [...old, record]);
     setSummary(record);
+    playSound("season");
 
     const nextPrimera = [
       ...primeraTeams.filter((team) => !relegated.some((r) => r.team === team)),
@@ -882,21 +1124,26 @@ export default function Home() {
     setRoundIndexB(0);
     setYear((old) => old + 1);
     setActiveLeague("primera");
+    setCup(generateCup([...nextPrimera, ...nextB]));
     setTheme("dark");
   }
 
   function nextSeason() {
     if (!finished) return;
+    playSound("season");
     closeSeason();
   }
 
   function simulateFullSeason() {
     const ok = window.confirm("¿Simular todos los partidos restantes de ambas categorías?");
     if (!ok) return;
+    playSound("click");
     const fullA = simulateRemainingFixture(fixtureA);
     const fullB = simulateRemainingFixture(fixtureB);
+    const fullCup = simulateWholeCup(cup);
     setFixtureA(fullA);
     setFixtureB(fullB);
+    setCup(fullCup);
     setRoundIndexA(fullA.length - 1);
     setRoundIndexB(fullB.length - 1);
   }
@@ -904,14 +1151,17 @@ export default function Home() {
   function simulateAndAdvance() {
     const ok = window.confirm("¿Simular toda la temporada restante y pasar al siguiente año automáticamente?");
     if (!ok) return;
+    playSound("champion");
     const fullA = simulateRemainingFixture(fixtureA);
     const fullB = simulateRemainingFixture(fixtureB);
-    closeSeason(fullA, fullB);
+    const fullCup = simulateWholeCup(cup);
+    closeSeason(fullA, fullB, fullCup);
   }
 
   function resetGame() {
     const ok = window.confirm("¿Seguro que querés reiniciar todo el juego? Se borrará el historial y el autoguardado.");
     if (!ok) return;
+    playSound("click");
     window.localStorage.removeItem(STORAGE_KEY);
     setYear(1);
     setPrimeraTeams(initialPrimera);
@@ -925,6 +1175,72 @@ export default function Home() {
     setSummary(null);
     setTab("inicio");
     setActiveLeague("primera");
+    setCup(generateCup([...initialPrimera, ...initialB]));
+  }
+
+  const currentCupRound = cup.rounds[cup.currentRoundIndex] ?? cup.rounds[0];
+
+  function updateCupMatch(matchIndex: number, hg: number | null, ag: number | null) {
+    setCup((old) => {
+      const next: CupTournament = {
+        ...old,
+        rounds: old.rounds.map((round) => ({ ...round, matches: round.matches.map((match) => ({ ...match })) })),
+      };
+
+      const match = next.rounds[next.currentRoundIndex]?.matches[matchIndex];
+      if (!match) return old;
+
+      match.hg = hg;
+      match.ag = ag;
+      match.winner = hg === null || ag === null ? null : hg === ag ? match.winner ?? (Math.random() > 0.5 ? match.home : match.away) : hg > ag ? match.home : match.away;
+      return advanceCup(next);
+    });
+  }
+
+  function simulateCupMatch(matchIndex: number) {
+    playSound("match");
+    setCup((old) => {
+      const next: CupTournament = {
+        ...old,
+        rounds: old.rounds.map((round) => ({ ...round, matches: round.matches.map((match) => ({ ...match })) })),
+      };
+
+      const match = next.rounds[next.currentRoundIndex]?.matches[matchIndex];
+      if (!match) return old;
+
+      Object.assign(match, simulateCupResult(match.home, match.away));
+      const advanced = advanceCup(next);
+      if (advanced.champion) playSound("champion");
+      return advanced;
+    });
+  }
+
+  function simulateCupRound() {
+    playSound("match");
+    setCup((old) => {
+      const next: CupTournament = {
+        ...old,
+        rounds: old.rounds.map((round) => ({ ...round, matches: round.matches.map((match) => ({ ...match })) })),
+      };
+      const round = next.rounds[next.currentRoundIndex];
+      if (!round) return old;
+
+      round.matches = round.matches.map((match) => {
+        if (match.hg !== null && match.ag !== null) return match;
+        return { ...match, ...simulateCupResult(match.home, match.away) };
+      });
+
+      const advanced = advanceCup(next);
+      if (advanced.champion) playSound("champion");
+      return advanced;
+    });
+  }
+
+  function resetCup() {
+    const ok = window.confirm("¿Reiniciar solo la Copa Argentina?");
+    if (!ok) return;
+    playSound("click");
+    setCup(generateCup([...primeraTeams, ...bTeams]));
   }
 
   const isLight = theme === "light";
@@ -973,13 +1289,15 @@ export default function Home() {
       <nav className="sticky top-0 z-10 bg-[#061016]/90 backdrop-blur-xl border-b border-white/10 shadow-sm">
         <div className="max-w-[1500px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 flex-wrap text-sm">
-            <button onClick={() => setTab("inicio")} className={`font-black ${tab === "inicio" ? "text-blue-400" : "text-white/80"}`}>Inicio</button>
-            <button onClick={() => setTab("fixture")} className={`font-black ${tab === "fixture" ? "text-blue-400" : "text-white/80"}`}>Fixture</button>
-            <button onClick={() => setTab("historica")} className={`font-black ${tab === "historica" ? "text-blue-400" : "text-white/80"}`}>Tabla histórica</button>
-            <button onClick={() => setTab("campeonatos")} className={`font-black ${tab === "campeonatos" ? "text-blue-400" : "text-white/80"}`}>Campeonatos</button>
-            <button onClick={() => setTab("promedios")} className={`font-black ${tab === "promedios" ? "text-blue-400" : "text-white/80"}`}>Promedios</button>
-            <button onClick={() => setTab("movimientos")} className={`font-black ${tab === "movimientos" ? "text-blue-400" : "text-white/80"}`}>Ascensos/Descensos</button>
-            <button onClick={() => setTab("anios")} className={`font-black ${tab === "anios" ? "text-blue-400" : "text-white/80"}`}>Años</button>
+            <button onClick={() => { playSound("click"); setTab("inicio"); }} className={`font-black ${tab === "inicio" ? "text-blue-400" : "text-white/80"}`}>Inicio</button>
+            <button onClick={() => { playSound("click"); setTab("fixture"); }} className={`font-black ${tab === "fixture" ? "text-blue-400" : "text-white/80"}`}>Fixture</button>
+            <button onClick={() => { playSound("click"); setTab("historica"); }} className={`font-black ${tab === "historica" ? "text-blue-400" : "text-white/80"}`}>Tabla histórica</button>
+            <button onClick={() => { playSound("click"); setTab("campeonatos"); }} className={`font-black ${tab === "campeonatos" ? "text-blue-400" : "text-white/80"}`}>Campeonatos</button>
+            <button onClick={() => { playSound("click"); setTab("promedios"); }} className={`font-black ${tab === "promedios" ? "text-blue-400" : "text-white/80"}`}>Promedios</button>
+            <button onClick={() => { playSound("click"); setTab("movimientos"); }} className={`font-black ${tab === "movimientos" ? "text-blue-400" : "text-white/80"}`}>Ascensos/Descensos</button>
+            <button onClick={() => { playSound("click"); setTab("copa"); }} className={`font-black ${tab === "copa" ? "text-blue-400" : "text-white/80"}`}>Copa Argentina</button>
+            <button onClick={() => { playSound("click"); setTab("clubes"); }} className={`font-black ${tab === "clubes" ? "text-blue-400" : "text-white/80"}`}>Clubes</button>
+            <button onClick={() => { playSound("click"); setTab("anios"); }} className={`font-black ${tab === "anios" ? "text-blue-400" : "text-white/80"}`}>Años</button>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -999,8 +1317,38 @@ export default function Home() {
       </nav>
 
       <div className="relative w-full max-w-[1500px] mx-auto px-6 py-4 space-y-4">
+        <GlassCard className="p-4 text-white max-w-[1360px] mx-auto">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-xs uppercase tracking-[0.3em] text-blue-300 font-black">Noticias</p>
+              <div className="space-y-1 mt-2">
+                {news.map((item, index) => (
+                  <p key={index} className="text-sm text-white/85">📰 {item}</p>
+                ))}
+              </div>
+            </div>
+            <div className="rounded-xl bg-white/10 border border-white/10 px-4 py-3 text-center">
+              <div className="flex items-center justify-center gap-3">
+                <CupLogo size="sm" />
+                <div>
+                  <p className="text-xs uppercase text-white/55 font-black">Copa Argentina</p>
+                  <div className="flex items-center gap-2 justify-center mt-1">
+                    <TeamLogo team={cup.champion ?? "-"} size="sm" />
+                    <p className="text-lg font-black">{cup.champion}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </GlassCard>
         {summary && (
-          <div className="fixed inset-0 bg-black/70 z-20 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 bg-black/70 z-20 flex items-center justify-center p-4 backdrop-blur-sm overflow-hidden">
+            <div className="absolute left-8 top-1/4 h-2 w-2 rounded-full bg-yellow-300 animate-ping" />
+            <div className="absolute left-20 top-1/2 h-3 w-3 rounded-full bg-sky-300 animate-ping" />
+            <div className="absolute left-12 bottom-1/4 h-2 w-2 rounded-full bg-red-300 animate-ping" />
+            <div className="absolute right-8 top-1/3 h-2 w-2 rounded-full bg-emerald-300 animate-ping" />
+            <div className="absolute right-24 top-1/2 h-3 w-3 rounded-full bg-violet-300 animate-ping" />
+            <div className="absolute right-12 bottom-1/4 h-2 w-2 rounded-full bg-yellow-300 animate-ping" />
             <GlassCard className="max-w-xl w-full p-6 space-y-5 text-white animate-[fadeIn_.2s_ease-out]">
               <h2 className="text-3xl font-black">Resumen Año {summary.year}</h2>
               <div className="rounded-xl bg-yellow-500/15 p-4 border border-yellow-400/20">
@@ -1008,6 +1356,10 @@ export default function Home() {
                 <div className="mt-2"><TeamName team={summary.champion.team} /></div>
               </div>
               <div><h3 className="font-bold">Top 3 Liga Profesional Argentina</h3><ol className="list-decimal ml-6 mt-1 space-y-1">{summary.top3.map((team) => <li key={team.team}>{team.team} - {team.pts} pts</li>)}</ol></div>
+              <div className="rounded-xl bg-sky-500/15 p-4 border border-sky-400/20">
+                <h3 className="font-black">Copa Argentina</h3>
+                <div className="mt-2 flex items-center gap-3"><TeamLogo team={summary.cupChampion ?? "-"} size="sm" /><span>{summary.cupChampion ?? "Sin campeón"}</span></div>
+              </div>
               <div>
                 <h3 className="font-bold text-red-300">Descendidos</h3>
                 <ul className="list-disc ml-6 mt-1">
@@ -1046,8 +1398,9 @@ export default function Home() {
             </GlassCard>
 
             <div className="flex gap-3 flex-wrap max-w-[1360px] mx-auto">
-              <button onClick={() => setActiveLeague("primera")} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${activeLeague === "primera" ? "bg-blue-600 text-white border-blue-600" : "bg-black/55 text-white border-white/10"}`}>Liga Profesional Argentina</button>
-              <button onClick={() => setActiveLeague("b")} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${activeLeague === "b" ? "bg-amber-500 text-white border-amber-500" : "bg-black/55 text-white border-white/10"}`}>Primera B Nacional</button>
+              <button onClick={() => { playSound("click"); setActiveLeague("primera"); }} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${activeLeague === "primera" ? "bg-blue-600 text-white border-blue-600" : "bg-black/55 text-white border-white/10"}`}>Liga Profesional Argentina</button>
+              <button onClick={() => { playSound("click"); setActiveLeague("b"); }} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${activeLeague === "b" ? "bg-amber-500 text-white border-amber-500" : "bg-black/55 text-white border-white/10"}`}>Primera B Nacional</button>
+              <button onClick={() => { playSound("click"); setTab("copa"); }} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${String(tab) === "copa" ? "bg-sky-600 text-white border-sky-600" : "bg-black/55 text-white border-white/10"}`}>Copa Argentina</button>
             </div>
 
             {activeLeague === "primera" ? (
@@ -1073,6 +1426,7 @@ export default function Home() {
             <div className="flex gap-3 flex-wrap">
               <button onClick={() => setActiveLeague("primera")} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${activeLeague === "primera" ? "bg-blue-600 text-white border-blue-600" : "bg-black/55 text-white border-white/10"}`}>Liga Profesional Argentina</button>
               <button onClick={() => setActiveLeague("b")} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${activeLeague === "b" ? "bg-amber-500 text-white border-amber-500" : "bg-black/55 text-white border-white/10"}`}>Primera B Nacional</button>
+              <button onClick={() => { playSound("click"); setTab("copa"); }} className={`px-4 py-3 rounded-lg font-black shadow-sm border ${String(tab) === "copa" ? "bg-sky-600 text-white border-sky-600" : "bg-black/55 text-white border-white/10"}`}>Copa Argentina</button>
             </div>
             {activeLeague === "primera" ? <FixtureFullView title="Liga Profesional Argentina" fixture={fixtureA} league="primera" /> : <FixtureFullView title="Primera B Nacional" fixture={fixtureB} league="b" />}
           </section>
@@ -1119,6 +1473,161 @@ export default function Home() {
           </section>
         )}
 
+        {tab === "copa" && (
+          <section className="space-y-5 max-w-[1360px] mx-auto">
+            <GlassCard className="p-5 text-white border-sky-400/25 overflow-hidden relative">
+              <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_top_right,#38bdf8,transparent_40%)]" />
+              <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <CupLogo size="lg" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.35em] text-sky-300 font-black">Copa Argentina</p>
+                    <h1 className="text-4xl font-black text-white">{cup.champion ? "Copa finalizada" : cupStageName(currentCupRound)}</h1>
+                    <p className="text-white/65">
+                      {cup.champion ? `Campeón: ${cup.champion}` : "Jugá la instancia actual para avanzar el cuadro."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  <button onClick={simulateCupRound} disabled={!!cup.champion} className={`px-5 py-3 rounded-xl font-black shadow-lg ${cup.champion ? "bg-white/15 text-white/45 cursor-not-allowed" : "bg-sky-600 hover:bg-sky-700 text-white"}`}>
+                    Simular instancia
+                  </button>
+                  <button onClick={resetCup} className="px-5 py-3 rounded-xl font-black shadow-lg bg-black/55 hover:bg-black/75 border border-white/10 text-white">
+                    Reiniciar copa
+                  </button>
+                </div>
+              </div>
+            </GlassCard>
+
+            <GlassCard className="p-4 text-white border-sky-400/20 overflow-hidden relative">
+              <div className="absolute inset-0 opacity-15 bg-[radial-gradient(circle_at_top_right,#38bdf8,transparent_38%)]" />
+              <div className="relative flex items-center justify-between mb-4">
+                <h2 className="text-2xl font-black">Partidos de {cupStageName(currentCupRound)}</h2>
+                <div className="flex items-center gap-2 rounded-full bg-sky-500/15 border border-sky-400/25 px-3 py-1 text-xs font-black uppercase tracking-wider text-sky-200">
+                  <CupLogo size="sm" />
+                  Instancia actual
+                </div>
+              </div>
+
+              {cup.champion ? (
+                <div className="relative rounded-2xl bg-yellow-500/15 border border-yellow-400/25 p-8 text-center">
+                  <div className="flex justify-center"><TeamLogo team={cup.champion ?? "-"} size="xl" /></div>
+                  <h3 className="mt-4 text-4xl font-black text-white">{cup.champion}</h3>
+                  <p className="text-white/65">Campeón de la Copa Argentina</p>
+                </div>
+              ) : (
+                <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {(currentCupRound?.matches ?? []).map((match, index) => (
+                    <div key={`${currentCupRound?.name}-${index}`} className="rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-3 transition-all">
+                      <div className="grid grid-cols-[1fr_92px_1fr_72px] gap-3 items-center text-sm">
+                        <TeamName team={match.home} align="right" small />
+
+                        <div className="grid grid-cols-[34px_18px_34px] items-center justify-center gap-1">
+                          <input
+                            className="h-8 rounded-lg border border-white/10 bg-white/[0.08] text-white text-center font-black text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                            value={match.hg ?? ""}
+                            onChange={(e) => updateCupMatch(index, e.target.value === "" ? null : Number(e.target.value), match.ag)}
+                          />
+                          <span className="text-center font-black text-white/70">-</span>
+                          <input
+                            className="h-8 rounded-lg border border-white/10 bg-white/[0.08] text-white text-center font-black text-sm outline-none focus:ring-2 focus:ring-sky-500"
+                            value={match.ag ?? ""}
+                            onChange={(e) => updateCupMatch(index, match.hg, e.target.value === "" ? null : Number(e.target.value))}
+                          />
+                        </div>
+
+                        <TeamName team={match.away} small />
+
+                        <button onClick={() => simulateCupMatch(index)} className="rounded-lg bg-sky-600/90 hover:bg-sky-500 text-white px-3 py-1.5 text-xs font-bold transition-colors">
+                          Jugar
+                        </button>
+                      </div>
+
+                      {match.winner && (
+                        <div className="mt-2 text-center text-xs text-sky-200 font-bold">
+                          Clasifica: {match.winner}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </GlassCard>
+
+            <GlassCard className="p-4 text-white">
+              <h2 className="text-2xl font-black mb-3">Cuadro de Copa</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                {cup.rounds.map((round, index) => (
+                  <div key={`${round.name}-${index}`} className={`rounded-xl border p-3 ${index === cup.currentRoundIndex && !cup.champion ? "bg-sky-500/15 border-sky-400/35" : "bg-white/5 border-white/10"}`}>
+                    <p className="font-black mb-2">{cupStageName(round)}</p>
+                    <p className="text-xs text-white/55">{round.matches.length ? `${round.matches.length} partidos` : "Pendiente"}</p>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          </section>
+        )}
+
+        {tab === "clubes" && (
+          <section className="space-y-5">
+            <div>
+              <h1 className="text-4xl font-black text-white">Clubes</h1>
+              <p className="text-white/65">Estadísticas históricas de cada equipo.</p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+              <GlassCard className="p-4 max-h-[600px] overflow-y-auto">
+                <div className="space-y-2">
+                  {clubStats.map((club) => (
+                    <button
+                      key={club.team}
+                      onClick={() => setSelectedClub(club.team)}
+                      className={`w-full rounded-lg px-3 py-2 text-left transition-all ${selectedClub === club.team ? "bg-blue-600 text-white" : "bg-white/5 hover:bg-white/10 text-white"}`}
+                    >
+                      <TeamName team={club.team} small />
+                    </button>
+                  ))}
+                </div>
+              </GlassCard>
+
+              <GlassCard className="p-5 text-white">
+                {selectedClub ? (
+                  (() => {
+                    const club = clubStats.find((c) => c.team === selectedClub);
+                    if (!club) return null;
+
+                    return (
+                      <div className="space-y-5">
+                        <div className="flex items-center gap-4">
+                          <TeamLogo team={club.team} size="xl" />
+                          <div>
+                            <h2 className="text-4xl font-black">{club.team}</h2>
+                            <p className="text-white/60">Ficha histórica del club</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                          <StatCard label="Títulos liga" value={club.titles} />
+                          <StatCard label="Copas Argentina" value={club.cupTitles} />
+                          <StatCard label="Temporadas" value={club.seasons} />
+                          <StatCard label="Descensos" value={club.relegations} />
+                          <StatCard label="Ascensos" value={club.promotions} />
+                          <StatCard label="Puntos históricos" value={club.historicalPoints} />
+                        </div>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="h-full flex items-center justify-center text-white/60">
+                    Seleccioná un club.
+                  </div>
+                )}
+              </GlassCard>
+            </div>
+          </section>
+        )}
+
         {tab === "anios" && (
           <section className="space-y-5">
             <div>
@@ -1137,6 +1646,15 @@ export default function Home() {
                     <HistoricTable rows={history.find((s) => s.year === selectedYear)?.primera ?? []} />
                     <h2 className="text-2xl font-black text-white">Año {selectedYear} - Primera B Nacional</h2>
                     <HistoricTable rows={history.find((s) => s.year === selectedYear)?.b ?? []} />
+                    <GlassCard className="p-5 text-white">
+                      <div className="flex items-center gap-4">
+                        <CupLogo size="lg" />
+                        <div>
+                          <h2 className="text-2xl font-black text-white">Copa Argentina Año {selectedYear}</h2>
+                          <p className="text-white/65">Campeón: {history.find((s) => s.year === selectedYear)?.cupChampion ?? "Sin registro"}</p>
+                        </div>
+                      </div>
+                    </GlassCard>
                   </div>
                 )}
               </>
