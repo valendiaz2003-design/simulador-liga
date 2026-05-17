@@ -4075,6 +4075,8 @@ export default function Home() {
     }
 
     setCloudStatus("Guardando online...");
+    console.log("SUPABASE_URL:", SUPABASE_URL);
+console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
 
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/liga_saves`, {
