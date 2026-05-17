@@ -1370,47 +1370,7 @@ function Zone({
   const playedInRound = currentRound.matches.filter((m) => m.hg !== null && m.ag !== null).length;
   const isB = type === "b";
 
-  function updateMatch(id: string, hg: number | null, ag: number | null) {
-    setFixture((old) =>
-      old.map((round) => ({
-        ...round,
-        matches: round.matches.map((match) => (match.id === id ? { ...match, hg, ag } : match)),
-      }))
-    );
-  }
-
-  function simulateMatch(match: Match) {
-    if (match.hg !== null && match.ag !== null) {
-      const ok = window.confirm("Este partido ya fue simulado. ¿Querés volver a simularlo?");
-      if (!ok) return;
-    }
-
-    playSound("match");
-
-    updateMatch(
-      match.id,
-      simulateGoals(match.home, match.away, type, true),
-      simulateGoals(match.away, match.home, type, false)
-    );
-  }
-
-  function simulateRound() {
-    const alreadyPlayed = currentRound.matches.some((match) => match.hg !== null && match.ag !== null);
-
-    if (alreadyPlayed) {
-      const ok = window.confirm(
-        "Algunos partidos de esta fecha ya fueron simulados. Solo se simularán los que faltan. ¿Continuar?"
-      );
-
-      if (!ok) return;
-    }
-
-    playSound("match");
-
-    const simulatedMatches = currentRound.matches.map((match) =>
-      match.hg !== null && match.ag !== null ? match : simulateOne(match, type)
-    );
-
+  function emitRoundReport(simulatedMatches: Match[]) {
     const decided = simulatedMatches
       .filter((match) => match.hg !== null && match.ag !== null)
       .map((match) => ({
@@ -1607,6 +1567,60 @@ function Zone({
       statLine: `${totalGoals} goles · ${homeWins} triunfos locales · ${awayWins} visitantes · ${draws} empates`,
       lines: reportLines.slice(0, 10),
     });
+
+  }
+
+  function updateMatch(id: string, hg: number | null, ag: number | null) {
+    const nextMatches = currentRound.matches.map((match) =>
+      match.id === id ? { ...match, hg, ag } : match
+    );
+
+    setFixture((old) =>
+      old.map((round) =>
+        round.round === currentRound.round
+          ? { ...round, matches: nextMatches }
+          : round
+      )
+    );
+
+    if (nextMatches.every((match) => match.hg !== null && match.ag !== null)) {
+      emitRoundReport(nextMatches);
+    }
+  }
+
+  function simulateMatch(match: Match) {
+    if (match.hg !== null && match.ag !== null) {
+      const ok = window.confirm("Este partido ya fue simulado. ¿Querés volver a simularlo?");
+      if (!ok) return;
+    }
+
+    playSound("match");
+
+    updateMatch(
+      match.id,
+      simulateGoals(match.home, match.away, type, true),
+      simulateGoals(match.away, match.home, type, false)
+    );
+  }
+
+  function simulateRound() {
+    const alreadyPlayed = currentRound.matches.some((match) => match.hg !== null && match.ag !== null);
+
+    if (alreadyPlayed) {
+      const ok = window.confirm(
+        "Algunos partidos de esta fecha ya fueron simulados. Solo se simularán los que faltan. ¿Continuar?"
+      );
+
+      if (!ok) return;
+    }
+
+    playSound("match");
+
+    const simulatedMatches = currentRound.matches.map((match) =>
+      match.hg !== null && match.ag !== null ? match : simulateOne(match, type)
+    );
+
+    emitRoundReport(simulatedMatches);
 
     setFixture((old) =>
       old.map((round) =>
@@ -4043,7 +4057,8 @@ function InfoModal({ onClose }: { onClose: () => void }) {
             <p>
               Liga Manager es un simulador de fútbol argentino donde las temporadas avanzan año a año,
               los clubes construyen historia y cada save termina teniendo su propio universo: campeones,
-              descensos, ascensos, rachas, sorpresas, crisis y nuevos protagonistas.
+              descensos, ascensos, rachas, sorpresas, crisis y nuevos protagonistas. Podés jugar a tu ritmo:
+              partido a partido, fecha a fecha o simulando una temporada completa.
             </p>
           </section>
 
