@@ -169,6 +169,7 @@ type SavedGame = {
   cup?: CupTournament;
   saveCode?: string;
   sidebarOpen?: boolean;
+  teamPower?: Record<string, number>;
 };
 
 const STORAGE_KEY = "liga-manager-save-v4";
@@ -265,6 +266,85 @@ const strengths: Record<string, number> = {
   Moron: 56,
 };
 
+const MIN_POWER = 45;
+const MAX_POWER = 95;
+
+function clampPower(value: number) {
+  return Math.max(MIN_POWER, Math.min(MAX_POWER, Math.round(value)));
+}
+
+function createInitialTeamPower() {
+  return { ...strengths };
+}
+
+let activeTeamPower: Record<string, number> = createInitialTeamPower();
+
+function getTeamPower(team: string, teamPower?: Record<string, number>) {
+  return teamPower?.[team] ?? activeTeamPower[team] ?? strengths[team] ?? 60;
+}
+
+function updateSeasonTeamPower({
+  currentPower,
+  record,
+}: {
+  currentPower: Record<string, number>;
+  record: SeasonRecord;
+}) {
+  const next = { ...currentPower };
+
+  const allTeams = new Set([
+    ...Object.keys(strengths),
+    ...record.primera.map((row) => row.team),
+    ...record.b.map((row) => row.team),
+  ]);
+
+  allTeams.forEach((team) => {
+    const base = strengths[team] ?? 60;
+    const current = next[team] ?? base;
+
+    // Regresión anual: evita que la fuerza se infle o se hunda para siempre.
+    next[team] = current + (base - current) * 0.12;
+  });
+
+  function add(team: string | undefined | null, amount: number) {
+    if (!team) return;
+    const base = strengths[team] ?? 60;
+    next[team] = clampPower((next[team] ?? base) + amount);
+  }
+
+  add(record.champion.team, 3);
+  add(record.top3[1]?.team, 1);
+  add(record.top3[2]?.team, 1);
+
+  if (record.cupChampion) add(record.cupChampion, 2);
+
+  record.promoted.forEach((row) => add(row.team, 2));
+  record.relegated.forEach((row) => add(row.team, -4));
+
+  if (record.promotionWinner === record.promotionTeamB?.team) {
+    add(record.promotionTeamB?.team, 2);
+    add(record.promotionTeamA?.team, -2);
+  }
+
+  record.primera.slice(0, 5).forEach((row) => add(row.team, 1));
+  record.primera.slice(-4).forEach((row) => add(row.team, -1));
+
+  return Object.fromEntries(
+    Object.entries(next).map(([team, power]) => [team, clampPower(power)])
+  );
+}
+
+function buildTeamPowerFromHistory(history: SeasonRecord[]) {
+  return history.reduce(
+    (currentPower, record) =>
+      updateSeasonTeamPower({
+        currentPower,
+        record,
+      }),
+    createInitialTeamPower()
+  );
+}
+
 const logos: Record<string, string> = {
   "Boca Jrs": "/teams/boca-jrs.png",
   River: "/teams/river.png",
@@ -358,8 +438,13 @@ function generateFixture(teams: string[]): Round[] {
   return rounds;
 }
 
-function getEffectiveStrength(team: string, context: LeagueKey | "cup", isHome: boolean) {
-  const base = strengths[team] ?? 60;
+function getEffectiveStrength(
+  team: string,
+  context: LeagueKey | "cup",
+  isHome: boolean,
+  teamPower?: Record<string, number>
+) {
+  const base = getTeamPower(team, teamPower);
 
   const multiplier = context === "b" ? 2 : context === "cup" ? 1.18 : 1;
   const homeBonus = isHome ? 3 + base * 0.035 : 0;
@@ -367,10 +452,16 @@ function getEffectiveStrength(team: string, context: LeagueKey | "cup", isHome: 
   return base * multiplier + homeBonus;
 }
 
-function simulateGoals(team: string, rival: string, context: LeagueKey | "cup" = "primera", isHome = false) {
-  const teamPower = getEffectiveStrength(team, context, isHome);
-  const rivalPower = getEffectiveStrength(rival, context, !isHome);
-  const diff = teamPower - rivalPower;
+function simulateGoals(
+  team: string,
+  rival: string,
+  context: LeagueKey | "cup" = "primera",
+  isHome = false,
+  teamPower?: Record<string, number>
+) {
+  const teamStrength = getEffectiveStrength(team, context, isHome, teamPower);
+  const rivalStrength = getEffectiveStrength(rival, context, !isHome, teamPower);
+  const diff = teamStrength - rivalStrength;
 
   const bonus = diff / 750;
   const r = Math.random() + bonus;
@@ -865,6 +956,126 @@ function generateClubText(club: ClubStats) {
   return `${club.team} todavía está construyendo su historia. Con el paso de las temporadas puede definir si será protagonista, copero, ascensor o un equipo de lucha permanente.`;
 }
 
+
+function formatFechaCount(count: number) {
+  if (count === 0) return "última fecha";
+  return `${count} fecha${count === 1 ? "" : "s"}`;
+}
+
+function buildTitleRaceLine(table: Row[], remainingRounds: number, league: LeagueKey) {
+  const leader = table[0];
+  const second = table[1];
+  const third = table[2];
+
+  if (!leader) return "El campeonato entra en zona caliente y cada resultado empieza a pesar más que la tabla misma.";
+
+  const leagueName = league === "b" ? "la B Nacional" : "la Liga Profesional";
+  const gap = second ? leader.pts - second.pts : 0;
+  const pointsLeft = Math.max(remainingRounds, 0) * 3;
+  const dateText = formatFechaCount(remainingRounds);
+
+  if (remainingRounds === 0) {
+    return `${leader.team} cerró la última fecha como dueño de ${leagueName}. La tabla ya no admite promesas: lo que no se ganó en la cancha quedó perdido en el archivo.`;
+  }
+
+  if (!second) {
+    return `A falta de ${dateText}, ${leader.team} manda en ${leagueName} y mira el cierre con el peso de quien sabe que cada pelota puede valer una temporada.`;
+  }
+
+  if (gap === 0) {
+    return `A falta de ${dateText}, ${leagueName} está al rojo vivo: ${leader.team} y ${second.team} llegan igualados, sin margen para pestañear y con la calculadora explotando.`;
+  }
+
+  if (gap <= 3) {
+    return `Quedan ${dateText} y ${leader.team} defiende la punta con apenas ${gap} punto${gap === 1 ? "" : "s"} sobre ${second.team}. El torneo entró en zona de nervios.`;
+  }
+
+  if (pointsLeft > 0 && gap > pointsLeft) {
+    return `${leader.team} tiene el cierre prácticamente servido: quedan ${dateText} y la distancia con ${second.team} ya parece demasiado grande para una remontada común.`;
+  }
+
+  return `El tramo final ya empezó: quedan ${dateText}, ${leader.team} manda con ${leader.pts} puntos y detrás aparecen ${second.team}${third ? ` y ${third.team}` : ""}, esperando el tropiezo que cambie todo.`;
+}
+
+function buildRelegationDramaLine(table: Row[], league: LeagueKey, stats?: ClubStatsCollection) {
+  const last = table[table.length - 1];
+  const penultimate = table[table.length - 2];
+  const antepenultimate = table[table.length - 3];
+
+  if (!last) return null;
+
+  if (league === "b") {
+    return `${last.team}${penultimate ? ` y ${penultimate.team}` : ""} viven una semana incómoda en el fondo de la B. No todo es ascenso: abajo también se juega reputación, futuro y paciencia.`;
+  }
+
+  const lastSize = getTeamSizeLabel(last.team, stats);
+  const pressure = lastSize === "GIGANTE" || lastSize === "GRANDE"
+    ? ` Para ${last.team}, que carga etiqueta de ${getTeamSizePhrase(last.team, stats)}, el golpe hace más ruido.`
+    : "";
+
+  return `${last.team}${penultimate ? `, ${penultimate.team}` : ""}${antepenultimate ? ` y ${antepenultimate.team}` : ""} empiezan a mirar la zona baja con otra cara. La pelea por no caer ya dejó de ser amenaza y se volvió tema de vestuario.${pressure}`;
+}
+
+function buildLeaderMovementLine(previousLeader: Row | undefined, newLeader: Row | undefined, remainingRounds: number) {
+  if (!previousLeader || !newLeader) return null;
+  if (previousLeader.team === newLeader.team) {
+    if (remainingRounds <= 3) return `${newLeader.team} sostuvo la punta en el momento más incómodo: cuando todos esperan una caída, cada triunfo vale doble.`;
+    return `${newLeader.team} sigue arriba y empieza a acostumbrar al resto a correr desde atrás.`;
+  }
+
+  return `${newLeader.team} le arrebató la punta a ${previousLeader.team} y cambió el clima del campeonato. No fue solo una fecha: fue un giro de cartelera.`;
+}
+
+function buildGrandezaRoundLine(results: { home: string; away: string; hg: number; ag: number; winner: string | null; totalGoals: number }[], table: Row[], stats?: ClubStatsCollection) {
+  const upset = results.find((match) => {
+    if (!match.winner) return false;
+    const loser = match.winner === match.home ? match.away : match.home;
+    const winnerSize = getTeamSizeLabel(match.winner, stats);
+    const loserSize = getTeamSizeLabel(loser, stats);
+    return (winnerSize === "CHICO" || winnerSize === "MUY CHICO") && (loserSize === "GRANDE" || loserSize === "GIGANTE");
+  });
+
+  if (upset?.winner) {
+    const loser = upset.winner === upset.home ? upset.away : upset.home;
+    return `${upset.winner} firmó un batacazo con todas las letras: bajó a ${loser}, ${getTeamSizePhrase(loser, stats)}, y recordó que la grandeza no firma planillas antes de jugar.`;
+  }
+
+  const smallTop = table.find((row, index) => index <= 4 && ["CHICO", "MUY CHICO"].includes(getTeamSizeLabel(row.team, stats)));
+  if (smallTop) {
+    const pos = table.findIndex((row) => row.team === smallTop.team) + 1;
+    return `${smallTop.team} ya no puede esconderse detrás del cartel de chico: está ${pos}° y su campaña empieza a pedir una tapa propia.`;
+  }
+
+  const bigCrisis = [...table].reverse().find((row) => {
+    const size = getTeamSizeLabel(row.team, stats);
+    const pos = table.findIndex((item) => item.team === row.team) + 1;
+    return (size === "GIGANTE" || size === "GRANDE") && pos >= 12;
+  });
+
+  if (bigCrisis) {
+    const pos = table.findIndex((row) => row.team === bigCrisis.team) + 1;
+    return `${bigCrisis.team} tiene nombre pesado, pero la tabla le devuelve una imagen incómoda: ${pos}° y con más preguntas que respuestas.`;
+  }
+
+  return null;
+}
+
+function buildPowerNarrativeLine(table: Row[], teamPower?: Record<string, number>) {
+  const overachiever = table.find((row, index) => index <= 5 && getTeamPower(row.team, teamPower) <= 68);
+  if (overachiever) {
+    const pos = table.findIndex((row) => row.team === overachiever.team) + 1;
+    return `${overachiever.team} está jugando por encima de su fuerza actual: con ${getTeamPower(overachiever.team, teamPower)} de poder aparece ${pos}° y rompe cualquier pronóstico frío.`;
+  }
+
+  const underachiever = [...table].reverse().find((row) => getTeamPower(row.team, teamPower) >= 78);
+  if (underachiever) {
+    const pos = table.findIndex((row) => row.team === underachiever.team) + 1;
+    if (pos >= 10) return `${underachiever.team} tiene fuerza de candidato (${getTeamPower(underachiever.team, teamPower)}), pero su campaña no acompaña: la tabla empieza a exigir explicaciones.`;
+  }
+
+  return null;
+}
+
 function TeamLogo({
   team,
   size = "md",
@@ -1140,6 +1351,7 @@ function Zone({
   setRoundIndex,
   onRoundReport,
   clubStats,
+  teamPower,
 }: {
   name: string;
   type: LeagueKey;
@@ -1150,6 +1362,7 @@ function Zone({
   setRoundIndex: React.Dispatch<React.SetStateAction<number>>;
   onRoundReport?: (report: RoundReport) => void;
   clubStats?: ClubStatsCollection;
+  teamPower?: Record<string, number>;
 }) {
   const table = useMemo(() => buildTable(teams, fixture), [teams, fixture]);
   const currentRound = fixture[roundIndex] ?? fixture[0];
@@ -1227,6 +1440,14 @@ function Zone({
         totalGoals: (match.hg ?? 0) + (match.ag ?? 0),
       }));
 
+    const reportFixture = fixture.map((round) =>
+      round.round === currentRound.round ? { ...round, matches: simulatedMatches } : round
+    );
+    const reportTable = buildTable(teams, reportFixture);
+    const previousLeader = table[0];
+    const reportLeader = reportTable[0];
+    const remainingRounds = Math.max(fixture.length - currentRound.round, 0);
+
     const totalGoals = reportResults.reduce((acc, match) => acc + match.totalGoals, 0);
     const draws = reportResults.filter((match) => !match.winner).length;
     const awayWins = reportResults.filter((match) => match.winner === match.away).length;
@@ -1276,10 +1497,16 @@ function Zone({
     const contextLine = buildSizeContextLine({
       winner: featuredMatch?.winner,
       loser: loserTeam,
-      leader,
-      table,
+      leader: reportLeader,
+      table: reportTable,
       stats: clubStats,
     });
+
+    const leaderMovementLine = buildLeaderMovementLine(previousLeader, reportLeader, remainingRounds);
+    const titleRaceLine = buildTitleRaceLine(reportTable, remainingRounds, type);
+    const relegationDramaLine = buildRelegationDramaLine(reportTable, type, clubStats);
+    const grandezaRoundLine = buildGrandezaRoundLine(reportResults, reportTable, clubStats);
+    const powerNarrativeLine = buildPowerNarrativeLine(reportTable, teamPower);
 
     const headlines = [
       `${mainTeam} puso la tapa`,
@@ -1344,29 +1571,41 @@ function Zone({
       scoreless ? `También hubo partidos cerrados al extremo: ${scoreless} terminaron sin goles. No todo 0-0 es olvido; algunos son síntomas de miedo, cansancio o respeto excesivo.` : `No hubo demasiado lugar para aburrirse: los resultados dejaron material para discutir toda la semana.`,
       tightGames >= 5 ? `${tightGames} partidos se resolvieron por detalles mínimos. Fue fecha de margen fino, cambios puntuales y uñas mordidas hasta el cierre.` : `No todo fue parejo: algunos resultados marcaron diferencias que pueden pesar anímicamente en el próximo fixture.`,
       featuredMatch?.winner ? `${featuredMatch.winner} sale fortalecido, pero el torneo no regala continuidad: confirmar después de una buena fecha suele ser más difícil que pegar primero.` : `La fecha dejó más preguntas que respuestas, justo lo que necesita un campeonato para seguir vivo.`,
-      leader ? `${leader.team} mira todo desde arriba, pero cada fecha le agrega un examen nuevo. Ser líder no es estar cómodo; es jugar con todos apuntándote.` : `La tabla todavía se acomoda, pero algunos ya empiezan a mostrar qué tipo de temporada quieren jugar.`,
+      reportLeader ? `${reportLeader.team} mira todo desde arriba, pero cada fecha le agrega un examen nuevo. Ser líder no es estar cómodo; es jugar con todos apuntándote.` : `La tabla todavía se acomoda, pero algunos ya empiezan a mostrar qué tipo de temporada quieren jugar.`,
     ];
+
+    const finalStretch = remainingRounds <= 3;
+    const finalHeadline =
+      remainingRounds === 0
+        ? `Última fecha: ${reportLeader?.team ?? mainTeam} y el cierre caliente`
+        : `Quedan ${remainingRounds}: ${reportLeader?.team ?? mainTeam} siente la presión`;
+
+    const reportLines = [
+      ...(finalStretch ? [titleRaceLine, relegationDramaLine] : []),
+      leaderMovementLine,
+      grandezaRoundLine,
+      powerNarrativeLine,
+      leadLines[reportVariant % leadLines.length],
+      featuredLine,
+      analysisLines[(reportVariant + 1) % analysisLines.length],
+      analysisLines[(reportVariant + 2) % analysisLines.length],
+      analysisLines[(reportVariant + 3) % analysisLines.length],
+      analysisLines[(reportVariant + 4) % analysisLines.length],
+      analysisLines[(reportVariant + 5) % analysisLines.length],
+      contextLine,
+    ].filter((line): line is string => Boolean(line));
 
     onRoundReport?.({
       title: `Diario de la Fecha ${currentRound.round}`,
       league: type,
       round: currentRound.round,
       year: 0,
-      headline: headlines[reportVariant],
-      subtitle: subtitles[(reportVariant + totalGoals) % subtitles.length],
+      headline: finalStretch ? finalHeadline : headlines[reportVariant],
+      subtitle: finalStretch ? titleRaceLine : subtitles[(reportVariant + totalGoals) % subtitles.length],
       featured: featuredMatch,
       results: reportResults.sort((a, b) => b.totalGoals - a.totalGoals).slice(0, 8),
       statLine: `${totalGoals} goles · ${homeWins} triunfos locales · ${awayWins} visitantes · ${draws} empates`,
-      lines: [
-        leadLines[reportVariant % leadLines.length],
-        featuredLine,
-        analysisLines[(reportVariant + 1) % analysisLines.length],
-        analysisLines[(reportVariant + 2) % analysisLines.length],
-        analysisLines[(reportVariant + 3) % analysisLines.length],
-        analysisLines[(reportVariant + 4) % analysisLines.length],
-        analysisLines[(reportVariant + 5) % analysisLines.length],
-        contextLine,
-      ],
+      lines: reportLines.slice(0, 10),
     });
 
     setFixture((old) =>
@@ -2918,11 +3157,13 @@ function AiClubDescription({
   history,
   fallback,
   allClubStats,
+  teamPower,
 }: {
   club: ClubStats;
   history: SeasonRecord[];
   fallback: string;
   allClubStats?: ClubStatsCollection;
+  teamPower?: Record<string, number>;
 }) {
   const localProfile = useMemo(() => buildLocalClubProfile(club, history), [club, history]);
   const clubSize = getStrictClubSizeBadge(club.team, allClubStats);
@@ -3012,6 +3253,9 @@ function AiClubDescription({
                 <h3 className="text-3xl md:text-4xl font-black text-white">{profile.title}</h3>
                 <span className={`rounded-full border px-3 py-1 text-xs font-black tracking-[0.16em] ${getClubSizeBadgeClass(clubSize)}`}>
                   {clubSize}
+                </span>
+                <span className="rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs font-black tracking-[0.16em] text-cyan-200">
+                  FUERZA {getTeamPower(club.team, teamPower)}
                 </span>
               </div>
               <p className="text-white/55 text-sm mt-1">Perfil narrativo generado con estadísticas del save</p>
@@ -3776,6 +4020,89 @@ function NewspaperModal({
   );
 }
 
+function InfoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-3 md:p-6 backdrop-blur-sm">
+      <div className="my-4 w-full max-w-4xl rounded-3xl border border-white/15 bg-[#071118] text-white shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-white/[0.04] px-5 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.3em] text-sky-300 font-black">Información</p>
+            <h2 className="text-2xl md:text-3xl font-black">Qué es Liga Manager</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="h-10 w-10 rounded-full bg-white/10 hover:bg-white/20 border border-white/10 font-black"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="space-y-5 px-5 py-5 leading-relaxed text-white/82">
+          <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-xl font-black text-white mb-2">Un simulador argentino vivo</h3>
+            <p>
+              Liga Manager es un simulador de fútbol argentino donde las temporadas avanzan año a año,
+              los clubes construyen historia y cada save termina teniendo su propio universo: campeones,
+              descensos, ascensos, rachas, sorpresas, crisis y nuevos protagonistas.
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-xl font-black text-white mb-2">Tres competencias</h3>
+            <p>
+              El juego tiene <b>Liga Profesional Argentina</b>, <b>Primera B Nacional</b> y <b>Copa Argentina</b>.
+              La Liga y la B se juegan por tabla; la Copa Argentina funciona como torneo de eliminación directa.
+              Al terminar cada temporada se actualizan campeones, ascensos, descensos, promociones e historial.
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-xl font-black text-white mb-2">Tablas, promedios e historial</h3>
+            <p>
+              Podés seguir la tabla en vivo, revisar fixture, tabla histórica, campeonatos ganados,
+              descensos, ascensos y promedios. Cada temporada terminada queda archivada para consultar
+              cómo salió cada equipo y cómo fue cambiando el mapa del fútbol argentino.
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-xl font-black text-white mb-2">Diarios y crónicas</h3>
+            <p>
+              El simulador genera noticias, diarios de fecha y resúmenes de temporada. También cada club tiene
+              una crónica propia que cambia según lo que le pasa en el save: títulos, campañas, descensos,
+              ascensos, regularidad, decepciones o crecimiento histórico.
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-xl font-black text-white mb-2">Grandeza y fuerzas</h3>
+            <p>
+              Los clubes tienen una etiqueta de grandeza como <b>GIGANTE</b>, <b>GRANDE</b>, <b>MEDIO</b> o <b>CHICO</b>,
+              calculada con su historia dentro del save. Además muestran <b>fuerza inicial</b> y <b>fuerza actual</b>:
+              la inicial es el punto de partida, y la actual evoluciona con el rendimiento temporada tras temporada.
+            </p>
+          </section>
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <h3 className="text-xl font-black text-white mb-2">Guardado online</h3>
+            <p>
+              El código de guardado permite continuar la misma partida en otro dispositivo. Podés guardar,
+              copiar el código y cargar el save desde celular, PC u otro navegador sin perder el progreso.
+            </p>
+          </section>
+
+          <button
+            onClick={onClose}
+            className="w-full rounded-2xl bg-blue-600 hover:bg-blue-700 px-5 py-3 font-black text-white"
+          >
+            Entendido
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [mounted, setMounted] = useState(false);
 
@@ -3786,6 +4113,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const [year, setYear] = useState(1);
+  const [teamPower, setTeamPower] = useState<Record<string, number>>(createInitialTeamPower);
 
   const [primeraTeams, setPrimeraTeams] = useState(initialPrimera);
   const [bTeams, setBTeams] = useState(initialB);
@@ -3807,6 +4135,7 @@ export default function Home() {
   const [cloudStatus, setCloudStatus] = useState("");
   const [roundReports, setRoundReports] = useState<RoundReport[]>([]);
   const [selectedRoundReport, setSelectedRoundReport] = useState<RoundReport | null>(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   useEffect(() => {
     try {
@@ -3834,6 +4163,7 @@ export default function Home() {
         setCup(data.cup ?? generateCup(data.primeraTeams ?? initialPrimera, data.bTeams ?? initialB));
         setSaveCode(data.saveCode ?? createRandomSaveCode());
         setSidebarOpen(data.sidebarOpen ?? true);
+        setTeamPower(data.teamPower ?? buildTeamPowerFromHistory(data.history ?? []));
       } else {
         setFixtureA(generateFixture(initialPrimera));
         setFixtureB(generateFixture(initialB));
@@ -3867,6 +4197,7 @@ export default function Home() {
     cup,
     saveCode,
     sidebarOpen,
+    teamPower,
   };
 
   useEffect(() => {
@@ -3890,7 +4221,12 @@ export default function Home() {
     cup,
     saveCode,
     sidebarOpen,
+    teamPower,
   ]);
+
+  useEffect(() => {
+    activeTeamPower = teamPower;
+  }, [teamPower]);
 
   const tableA = useMemo(() => buildTable(primeraTeams, fixtureA), [primeraTeams, fixtureA]);
   const tableB = useMemo(() => buildTable(bTeams, fixtureB), [bTeams, fixtureB]);
@@ -4075,9 +4411,6 @@ export default function Home() {
     }
 
     setCloudStatus("Guardando online...");
-    console.log("SUPABASE_URL:", SUPABASE_URL);
-console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
-
     try {
       const res = await fetch(`${SUPABASE_URL}/rest/v1/liga_saves`, {
         method: "POST",
@@ -4150,6 +4483,7 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
       setCup(data.cup ?? generateCup(data.primeraTeams ?? initialPrimera, data.bTeams ?? initialB));
       setSaveCode(data.saveCode ?? code);
       setSidebarOpen(data.sidebarOpen ?? true);
+      setTeamPower(data.teamPower ?? buildTeamPowerFromHistory(data.history ?? []));
 
       setCloudStatus("Guardado online cargado.");
     } catch {
@@ -4190,6 +4524,12 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
     };
 
     setHistory((old) => [...old, record]);
+    setTeamPower((old) =>
+      updateSeasonTeamPower({
+        currentPower: old,
+        record,
+      })
+    );
     setSummary(record);
     playSound("season");
 
@@ -4272,6 +4612,7 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
     window.localStorage.removeItem(STORAGE_KEY);
 
     setYear(1);
+    setTeamPower(createInitialTeamPower());
     setPrimeraTeams(initialPrimera);
     setBTeams(initialB);
     setFixtureA(generateFixture(initialPrimera));
@@ -5045,20 +5386,22 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
               )}
             </div>
 
-            <div className="rounded-xl bg-white/10 border border-white/10 px-4 py-3 text-center">
+            <button
+              onClick={() => setShowInfoModal(true)}
+              className="rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 px-4 py-3 text-center transition-all min-w-[150px]"
+              title="Cómo funciona Liga Manager"
+            >
               <div className="flex items-center justify-center gap-3">
-                <CupLogo size="sm" />
+                <span className="grid h-10 w-10 place-items-center rounded-full bg-sky-500/20 border border-sky-300/30 text-xl font-black text-sky-200">
+                  i
+                </span>
 
-                <div>
-                  <p className="text-xs uppercase text-white/55 font-black">Copa Argentina</p>
-
-                  <div className="flex items-center gap-2 justify-center mt-1">
-                    <TeamLogo team={cup.champion ?? "-"} size="sm" />
-                    <p className="text-lg font-black">{cup.champion ?? "En juego"}</p>
-                  </div>
+                <div className="text-left">
+                  <p className="text-xs uppercase text-white/55 font-black">Ayuda</p>
+                  <p className="text-lg font-black">Info</p>
                 </div>
               </div>
-            </div>
+            </button>
           </div>
         </GlassCard>
 
@@ -5069,6 +5412,8 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
         {selectedRoundReport && (
           <RoundReportModal report={selectedRoundReport} onClose={() => setSelectedRoundReport(null)} />
         )}
+
+        {showInfoModal && <InfoModal onClose={() => setShowInfoModal(false)} />}
 
         {tab === "inicio" && (
           <>
@@ -5175,6 +5520,7 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
                   roundIndex={roundIndexA}
                   setRoundIndex={setRoundIndexA}
                   clubStats={clubStats}
+                  teamPower={teamPower}
                   onRoundReport={(report) =>
                     setRoundReports((old) => [
                       { ...report, year },
@@ -5200,6 +5546,7 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
                 roundIndex={roundIndexB}
                 setRoundIndex={setRoundIndexB}
                 clubStats={clubStats}
+                teamPower={teamPower}
                 onRoundReport={(report) =>
                   setRoundReports((old) => [
                     { ...report, year },
@@ -5386,7 +5733,7 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
                             </div>
                           </div>
 
-                          <AiClubDescription club={club} history={history} fallback={generateClubText(club)} allClubStats={clubStats} />
+                          <AiClubDescription club={club} history={history} fallback={generateClubText(club)} allClubStats={clubStats} teamPower={teamPower} />
 
                           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                             <StatCard label="Títulos liga" value={club.titles} />
@@ -5395,6 +5742,16 @@ console.log("SUPABASE_KEY:", SUPABASE_ANON_KEY?.slice(0, 20));
                             <StatCard label="Descensos" value={club.relegations} />
                             <StatCard label="Ascensos" value={club.promotions} />
                             <StatCard label="Puntos históricos" value={club.historicalPoints} />
+                            <StatCard
+                              label="Fuerza inicial"
+                              value={strengths[club.team] ?? 60}
+                              sub="Base del save"
+                            />
+                            <StatCard
+                              label="Fuerza actual"
+                              value={getTeamPower(club.team, teamPower)}
+                              sub={`Inicial ${strengths[club.team] ?? 60}`}
+                            />
                           </div>
 
                           <div>
