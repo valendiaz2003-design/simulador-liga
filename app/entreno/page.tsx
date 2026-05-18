@@ -109,8 +109,8 @@ export default function EntrenoPage() {
   const [editando, setEditando] = useState<string | null>(null);
 
   const [quickValues, setQuickValues] = useState<Record<string, string>>({});
+  const [rutinaAbierta, setRutinaAbierta] = useState(false);
   const [ejerciciosAbiertos, setEjerciciosAbiertos] = useState<Record<string, boolean>>({});
-  const [rutinaCompletaAbierta, setRutinaCompletaAbierta] = useState(false);
 
   const [nuevaRutina, setNuevaRutina] = useState({
     name: "",
@@ -158,17 +158,17 @@ export default function EntrenoPage() {
       const icon = document.createElement("link");
       icon.rel = "icon";
       icon.type = "image/png";
-      icon.href = "/images/entreno-logo.png?v=trainc10";
+      icon.href = "/images/entreno-logo.png?v=trainc11";
       document.head.appendChild(icon);
 
       const shortcut = document.createElement("link");
       shortcut.rel = "shortcut icon";
-      shortcut.href = "/images/entreno-logo.png?v=trainc10";
+      shortcut.href = "/images/entreno-logo.png?v=trainc11";
       document.head.appendChild(shortcut);
 
       const apple = document.createElement("link");
       apple.rel = "apple-touch-icon";
-      apple.href = "/images/entreno-logo.png?v=trainc10";
+      apple.href = "/images/entreno-logo.png?v=trainc11";
       document.head.appendChild(apple);
     };
 
@@ -342,6 +342,12 @@ export default function EntrenoPage() {
   const porcentajeRutinasMes =
     rutinasObjetivoMes > 0 ? (rutinasCompletadasMes / rutinasObjetivoMes) * 100 : 0;
 
+  const rutinaCompletaHoy =
+    rutinaActiva &&
+    completions.some(
+      (c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada
+    );
+
   const completadasSemana = routines.map((r) => ({
     routine: r,
     done: completions.some(
@@ -512,6 +518,9 @@ export default function EntrenoPage() {
 
   async function asignarRutina(fecha: string, routine_id: string) {
     const existente = schedule.find((s) => s.fecha === fecha);
+
+    setRutinaAbierta(false);
+    setEjerciciosAbiertos({});
 
     if (!routine_id) {
       if (existente) {
@@ -722,15 +731,20 @@ export default function EntrenoPage() {
       "application/json"
     );
   }
-
-  return (
+    return (
     <main className="min-h-screen bg-[#f4fbf7] text-[#0b3024]">
       <div className="mx-auto max-w-7xl px-4 py-5">
         <header className="mb-5 rounded-[32px] border border-[#d8f0e5] bg-white/90 p-5 shadow-[0_18px_60px_rgba(11,48,36,0.08)]">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
               <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-[#e6f8ef]">
-                <Image src="/images/entreno-logo.png" alt="TrainC+" fill className="object-contain p-1" priority />
+                <Image
+                  src="/images/entreno-logo.png"
+                  alt="TrainC+"
+                  fill
+                  className="object-contain p-1"
+                  priority
+                />
               </div>
 
               <div>
@@ -740,22 +754,36 @@ export default function EntrenoPage() {
                 <h1 className="mt-1 text-3xl font-black tracking-tight text-[#0f7a4f] md:text-4xl">
                   TrainC+
                 </h1>
-                <p className="mt-1 text-sm font-semibold text-[#5f7f70]">{estado}</p>
+                <p className="mt-1 text-sm font-semibold text-[#5f7f70]">
+                  {estado}
+                </p>
               </div>
             </div>
 
             <div className="rounded-2xl border border-[#d8f0e5] bg-[#f6fffa] px-5 py-3 text-right">
-              <p className="font-black text-[#0f7a4f]">{fechaBonita(fechaSeleccionada)}</p>
+              <p className="font-black text-[#0f7a4f]">
+                {fechaBonita(fechaSeleccionada)}
+              </p>
             </div>
           </div>
         </header>
 
         <nav className="sticky top-3 z-30 mb-5 flex gap-2 overflow-x-auto rounded-[24px] border border-[#d8f0e5] bg-white/90 p-2 shadow-[0_14px_45px_rgba(11,48,36,0.08)]">
-          <Nav activo={vista === "inicio"} onClick={() => setVista("inicio")}>Inicio</Nav>
-          <Nav activo={vista === "rutinas"} onClick={() => setVista("rutinas")}>Rutinas</Nav>
-          <Nav activo={vista === "resumen"} onClick={() => setVista("resumen")}>Resumen</Nav>
-          <Nav activo={vista === "registro"} onClick={() => setVista("registro")}>Registro</Nav>
-          <Nav activo={vista === "objetivos"} onClick={() => setVista("objetivos")}>Objetivos</Nav>
+          <Nav activo={vista === "inicio"} onClick={() => setVista("inicio")}>
+            Inicio
+          </Nav>
+          <Nav activo={vista === "rutinas"} onClick={() => setVista("rutinas")}>
+            Rutinas
+          </Nav>
+          <Nav activo={vista === "resumen"} onClick={() => setVista("resumen")}>
+            Resumen
+          </Nav>
+          <Nav activo={vista === "registro"} onClick={() => setVista("registro")}>
+            Registro
+          </Nav>
+          <Nav activo={vista === "objetivos"} onClick={() => setVista("objetivos")}>
+            Objetivos
+          </Nav>
         </nav>
 
         {vista === "inicio" && (
@@ -765,12 +793,20 @@ export default function EntrenoPage() {
                 {diasSemana.map((d) => {
                   const item = schedule.find((s) => s.fecha === d.fecha);
                   const routine = routines.find((r) => r.id === item?.routine_id);
-                  const done = routine && completions.some((c) => c.routine === routine.name && c.fecha === d.fecha);
+                  const done =
+                    routine &&
+                    completions.some(
+                      (c) => c.routine === routine.name && c.fecha === d.fecha
+                    );
 
                   return (
                     <button
                       key={d.fecha}
-                      onClick={() => setFechaSeleccionada(d.fecha)}
+                      onClick={() => {
+                        setFechaSeleccionada(d.fecha);
+                        setRutinaAbierta(false);
+                        setEjerciciosAbiertos({});
+                      }}
                       className={
                         fechaSeleccionada === d.fecha
                           ? "rounded-3xl bg-[#0f7a4f] p-4 text-white"
@@ -783,7 +819,9 @@ export default function EntrenoPage() {
                     >
                       <p className="text-xs font-black">{d.label}</p>
                       <p className="mt-1 text-xl font-black">{d.dia}</p>
-                      <p className="mt-1 text-xs font-bold">{routine ? routine.name : "Libre"}</p>
+                      <p className="mt-1 text-xs font-bold">
+                        {routine ? routine.name : "Libre"}
+                      </p>
                     </button>
                   );
                 })}
@@ -792,7 +830,16 @@ export default function EntrenoPage() {
 
             <Panel title="Rutina del día">
               <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                <input className="input" type="date" value={fechaSeleccionada} onChange={(e) => setFechaSeleccionada(e.target.value)} />
+                <input
+                  className="input"
+                  type="date"
+                  value={fechaSeleccionada}
+                  onChange={(e) => {
+                    setFechaSeleccionada(e.target.value);
+                    setRutinaAbierta(false);
+                    setEjerciciosAbiertos({});
+                  }}
+                />
 
                 <select
                   className="input"
@@ -801,7 +848,9 @@ export default function EntrenoPage() {
                 >
                   <option value="">Día libre / sin rutina</option>
                   {routines.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
                   ))}
                 </select>
 
@@ -815,7 +864,9 @@ export default function EntrenoPage() {
                 >
                   <option value="">Mover a...</option>
                   {diasSemana.map((d) => (
-                    <option key={d.fecha} value={d.fecha}>{d.label} {d.dia}</option>
+                    <option key={d.fecha} value={d.fecha}>
+                      {d.label} {d.dia}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -823,140 +874,184 @@ export default function EntrenoPage() {
 
             {!rutinaActiva && (
               <Panel>
-                <Empty>No tenés rutina asignada para este día. Elegí una arriba o creá rutinas en “Rutinas”.</Empty>
+                <Empty>
+                  No tenés rutina asignada para este día. Elegí una arriba o creá rutinas en “Rutinas”.
+                </Empty>
               </Panel>
             )}
 
             {rutinaActiva && (
-              <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-                <Panel title={`${rutinaActiva.name} · ${fechaBonita(fechaSeleccionada)}`}>
-                  <div className="space-y-3">
-                    {ejerciciosRutina.map((ej) => {
-                      const abierto = ejerciciosAbiertos[ej.id] || false;
-                      const ultima = ultimaMarca(ordenados, ej.nombre, ej.unidad);
-                      const delDia = ordenados.filter(
-                        (e) => e.fecha === fechaSeleccionada && e.ejercicio === ej.nombre
-                      );
-
-                      return (
-                        <div key={ej.id} className="overflow-hidden rounded-3xl border border-[#d8f0e5] bg-[#f6fffa]">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setEjerciciosAbiertos({
-                                ...ejerciciosAbiertos,
-                                [ej.id]: !abierto,
-                              })
-                            }
-                            className="w-full p-4 text-left"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <h3 className="text-xl font-black">{ej.nombre}</h3>
-                                <p className="text-sm text-[#5f7f70]">
-                                  {ej.series} series · Última:{" "}
-                                  <b>{ultima ? `${ultima.valor} ${ultima.unidad}` : "sin datos"}</b>
-                                </p>
-                                <p className="text-sm text-[#5f7f70]">
-                                  Hoy:{" "}
-                                  <b>{delDia.length ? delDia.map((x) => `${x.nota}: ${x.valor}`).join(" · ") : "sin cargar"}</b>
-                                </p>
-                              </div>
-
-                              <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f7a4f]">
-                                {abierto ? "Cerrar" : "Cargar"}
-                              </span>
-                            </div>
-                          </button>
-
-                          {abierto && (
-                            <div className="border-t border-[#d8f0e5] p-4 pt-3">
-                              <div className="space-y-2">
-                                {Array.from({ length: Math.max(ej.series, 1) }, (_, i) => i + 1).map((serie) => {
-                                  const key = `${ej.id}-${serie}`;
-
-                                  return (
-                                    <div key={key} className="grid grid-cols-[86px_1fr_auto] gap-2">
-                                      <div className="rounded-2xl bg-white px-4 py-3 font-black text-[#0f7a4f]">
-                                        Serie {serie}
-                                      </div>
-
-                                      <input
-                                        className="input"
-                                        type="number"
-                                        step="0.01"
-                                        placeholder={ej.unidad}
-                                        value={quickValues[key] || ""}
-                                        onChange={(e) =>
-                                          setQuickValues({ ...quickValues, [key]: e.target.value })
-                                        }
-                                      />
-
-                                      <button onClick={() => guardarSerie(ej, serie)} className="btn-primary">
-                                        Guardar
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-
-                    {!ejerciciosRutina.length && <Empty>Esta rutina todavía no tiene ejercicios.</Empty>}
-                  </div>
-
-                  <div className="mt-5 overflow-hidden rounded-3xl border border-[#d8f0e5] bg-[#f6fffa]">
-                    <button
-                      type="button"
-                      onClick={() => setRutinaCompletaAbierta(!rutinaCompletaAbierta)}
-                      className="flex w-full items-center justify-between p-4 text-left"
-                    >
+              <div className="grid items-start gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+                <section className="rounded-[34px] border border-[#d8f0e5] bg-white p-5 shadow-[0_18px_60px_rgba(11,48,36,0.08)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRutinaAbierta(!rutinaAbierta);
+                      if (rutinaAbierta) setEjerciciosAbiertos({});
+                    }}
+                    className="w-full rounded-[26px] bg-gradient-to-br from-[#11a36b] to-[#064d35] p-5 text-left text-white shadow-[0_16px_35px_rgba(15,122,79,0.22)]"
+                  >
+                    <div className="flex items-center justify-between gap-4">
                       <div>
-                        <h3 className="text-xl font-black">Finalizar rutina</h3>
-                        <p className="text-sm text-[#5f7f70]">
-                          {completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
-                            ? "Esta rutina ya está marcada como completa."
-                            : "Abrí esta sección cuando termines todo."}
+                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-white/70">
+                          Rutina asignada
+                        </p>
+                        <h2 className="mt-1 text-3xl font-black">
+                          {rutinaActiva.name}
+                        </h2>
+                        <p className="mt-2 text-sm text-white/75">
+                          {fechaBonita(fechaSeleccionada)} · {ejerciciosRutina.length} ejercicios
                         </p>
                       </div>
 
-                      <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f7a4f]">
-                        {rutinaCompletaAbierta ? "Cerrar" : "Abrir"}
+                      <span className="rounded-full bg-white px-5 py-3 text-sm font-black text-[#0f7a4f]">
+                        {rutinaAbierta ? "Cerrar" : "Abrir"}
                       </span>
-                    </button>
+                    </div>
+                  </button>
 
-                    {rutinaCompletaAbierta && (
-                      <div className="border-t border-[#d8f0e5] p-4">
-                        <button
-                          onClick={() => completarRutina(rutinaActiva)}
-                          className={
-                            completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
-                              ? "w-full rounded-2xl bg-emerald-100 py-4 font-black text-emerald-800"
-                              : "w-full rounded-2xl bg-gradient-to-r from-[#11a36b] to-[#0f7a4f] py-4 font-black text-white"
-                          }
-                        >
-                          {completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
-                            ? "Rutina completada"
-                            : "Marcar rutina como completa"}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </Panel>
+                  {rutinaAbierta && (
+                    <div className="mt-4 space-y-3">
+                      {ejerciciosRutina.map((ej) => {
+                        const abierto = ejerciciosAbiertos[ej.id] || false;
+                        const ultima = ultimaMarca(ordenados, ej.nombre, ej.unidad);
+                        const delDia = ordenados.filter(
+                          (e) =>
+                            e.fecha === fechaSeleccionada &&
+                            e.ejercicio === ej.nombre
+                        );
+
+                        return (
+                          <div
+                            key={ej.id}
+                            className="overflow-hidden rounded-3xl border border-[#d8f0e5] bg-[#f6fffa]"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEjerciciosAbiertos({
+                                  ...ejerciciosAbiertos,
+                                  [ej.id]: !abierto,
+                                })
+                              }
+                              className="w-full p-4 text-left"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <h3 className="text-xl font-black">{ej.nombre}</h3>
+                                  <p className="text-sm text-[#5f7f70]">
+                                    {ej.series} series · Última:{" "}
+                                    <b>
+                                      {ultima
+                                        ? `${ultima.valor} ${ultima.unidad}`
+                                        : "sin datos"}
+                                    </b>
+                                  </p>
+                                  <p className="text-sm text-[#5f7f70]">
+                                    Hoy:{" "}
+                                    <b>
+                                      {delDia.length
+                                        ? delDia
+                                            .map((x) => `${x.nota}: ${x.valor}`)
+                                            .join(" · ")
+                                        : "sin cargar"}
+                                    </b>
+                                  </p>
+                                </div>
+
+                                <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f7a4f]">
+                                  {abierto ? "Cerrar" : "Cargar"}
+                                </span>
+                              </div>
+                            </button>
+
+                            {abierto && (
+                              <div className="border-t border-[#d8f0e5] p-4 pt-3">
+                                <div className="space-y-2">
+                                  {Array.from(
+                                    { length: Math.max(ej.series, 1) },
+                                    (_, i) => i + 1
+                                  ).map((serie) => {
+                                    const key = `${ej.id}-${serie}`;
+
+                                    return (
+                                      <div
+                                        key={key}
+                                        className="grid grid-cols-[86px_1fr_auto] gap-2"
+                                      >
+                                        <div className="rounded-2xl bg-white px-4 py-3 font-black text-[#0f7a4f]">
+                                          Serie {serie}
+                                        </div>
+
+                                        <input
+                                          className="input"
+                                          type="number"
+                                          step="0.01"
+                                          placeholder={ej.unidad}
+                                          value={quickValues[key] || ""}
+                                          onChange={(e) =>
+                                            setQuickValues({
+                                              ...quickValues,
+                                              [key]: e.target.value,
+                                            })
+                                          }
+                                        />
+
+                                        <button
+                                          onClick={() => guardarSerie(ej, serie)}
+                                          className="btn-primary"
+                                        >
+                                          Guardar
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {!ejerciciosRutina.length && (
+                        <Empty>Esta rutina todavía no tiene ejercicios.</Empty>
+                      )}
+
+                      <button
+                        onClick={() => completarRutina(rutinaActiva)}
+                        className={
+                          rutinaCompletaHoy
+                            ? "w-full rounded-2xl bg-emerald-100 py-4 font-black text-emerald-800"
+                            : "w-full rounded-2xl bg-gradient-to-r from-[#11a36b] to-[#0f7a4f] py-4 font-black text-white"
+                        }
+                      >
+                        {rutinaCompletaHoy
+                          ? "Rutina completada"
+                          : "Marcar rutina como completa"}
+                      </button>
+                    </div>
+                  )}
+                </section>
 
                 <section className="space-y-4">
-                  <div className="rounded-[34px] bg-gradient-to-br from-[#11a36b] via-[#0f8a5d] to-[#064d35] p-6 text-white">
-                    <p className="text-sm font-semibold text-white/70">Rutinas del mes</p>
-                    <h2 className="mt-2 text-5xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}</h2>
-                    <p className="mt-3 text-sm text-white/70">completadas sobre tu objetivo mensual.</p>
+                  <div className="rounded-[34px] bg-gradient-to-br from-[#11a36b] via-[#0f8a5d] to-[#064d35] p-6 text-white shadow-[0_16px_40px_rgba(15,122,79,0.2)]">
+                    <p className="text-sm font-semibold text-white/70">
+                      Rutinas del mes
+                    </p>
+                    <h2 className="mt-2 text-5xl font-black">
+                      {rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}
+                    </h2>
+                    <p className="mt-3 text-sm text-white/70">
+                      completadas sobre tu objetivo mensual.
+                    </p>
                     <Progress value={porcentajeRutinasMes} light />
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-1">
-                    <Mini title="Rutinas semana" value={`${completadasSemana.filter((x) => x.done).length}/${routines.length}`} />
+                    <Mini
+                      title="Rutinas semana"
+                      value={`${completadasSemana.filter((x) => x.done).length}/${routines.length}`}
+                    />
                     <Mini title="Km mes" value={`${totalKmMes.toFixed(2)} km`} />
                     <Mini title="Días entrenados" value={String(diasEntrenadosMes)} />
                   </div>
@@ -964,7 +1059,12 @@ export default function EntrenoPage() {
                   <Panel title="Últimos registros">
                     <div className="space-y-3">
                       {ordenados.slice(0, 5).map((e) => (
-                        <EntryCard key={e.id} e={e} onEdit={editarEntry} onDelete={borrarEntry} />
+                        <EntryCard
+                          key={e.id}
+                          e={e}
+                          onEdit={editarEntry}
+                          onDelete={borrarEntry}
+                        />
                       ))}
                       {!ordenados.length && <Empty>Todavía no cargaste nada.</Empty>}
                     </div>
@@ -978,32 +1078,111 @@ export default function EntrenoPage() {
         {vista === "rutinas" && (
           <section className="space-y-5">
             <Panel title="Crear rutina">
-              <form onSubmit={crearRutina} className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
-                <input className="input" placeholder="Nombre de rutina: Empuje, Piernas..." value={nuevaRutina.name} onChange={(e) => setNuevaRutina({ ...nuevaRutina, name: e.target.value })} />
-                <input className="input" type="number" min="1" max="7" placeholder="Veces/semana" value={nuevaRutina.days_per_week} onChange={(e) => setNuevaRutina({ ...nuevaRutina, days_per_week: e.target.value })} />
+              <form
+                onSubmit={crearRutina}
+                className="grid gap-3 md:grid-cols-[1fr_180px_auto]"
+              >
+                <input
+                  className="input"
+                  placeholder="Nombre de rutina: Empuje, Piernas..."
+                  value={nuevaRutina.name}
+                  onChange={(e) =>
+                    setNuevaRutina({ ...nuevaRutina, name: e.target.value })
+                  }
+                />
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  max="7"
+                  placeholder="Veces/semana"
+                  value={nuevaRutina.days_per_week}
+                  onChange={(e) =>
+                    setNuevaRutina({
+                      ...nuevaRutina,
+                      days_per_week: e.target.value,
+                    })
+                  }
+                />
                 <button className="btn-primary">Crear</button>
               </form>
             </Panel>
 
             <Panel title="Agregar ejercicio a rutina">
-              <form onSubmit={agregarEjercicio} className="grid gap-3 md:grid-cols-[1fr_1fr_100px_130px_130px_auto]">
-                <select className="input" value={nuevoEjercicio.routine_id} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, routine_id: e.target.value })}>
+              <form
+                onSubmit={agregarEjercicio}
+                className="grid gap-3 md:grid-cols-[1fr_1fr_100px_130px_130px_auto]"
+              >
+                <select
+                  className="input"
+                  value={nuevoEjercicio.routine_id}
+                  onChange={(e) =>
+                    setNuevoEjercicio({
+                      ...nuevoEjercicio,
+                      routine_id: e.target.value,
+                    })
+                  }
+                >
                   <option value="">Elegir rutina</option>
-                  {routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  {routines.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
                 </select>
 
-                <input className="input" placeholder="Ejercicio" value={nuevoEjercicio.nombre} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, nombre: e.target.value })} />
+                <input
+                  className="input"
+                  placeholder="Ejercicio"
+                  value={nuevoEjercicio.nombre}
+                  onChange={(e) =>
+                    setNuevoEjercicio({
+                      ...nuevoEjercicio,
+                      nombre: e.target.value,
+                    })
+                  }
+                />
 
-                <input className="input" type="number" min="1" placeholder="Series" value={nuevoEjercicio.series} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, series: e.target.value })} />
+                <input
+                  className="input"
+                  type="number"
+                  min="1"
+                  placeholder="Series"
+                  value={nuevoEjercicio.series}
+                  onChange={(e) =>
+                    setNuevoEjercicio({
+                      ...nuevoEjercicio,
+                      series: e.target.value,
+                    })
+                  }
+                />
 
-                <select className="input" value={nuevoEjercicio.unidad} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, unidad: e.target.value })}>
+                <select
+                  className="input"
+                  value={nuevoEjercicio.unidad}
+                  onChange={(e) =>
+                    setNuevoEjercicio({
+                      ...nuevoEjercicio,
+                      unidad: e.target.value,
+                    })
+                  }
+                >
                   <option value="reps">reps</option>
                   <option value="km">km</option>
                   <option value="min">min</option>
                   <option value="kg">kg</option>
                 </select>
 
-                <select className="input" value={nuevoEjercicio.tipo} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, tipo: e.target.value as Tipo })}>
+                <select
+                  className="input"
+                  value={nuevoEjercicio.tipo}
+                  onChange={(e) =>
+                    setNuevoEjercicio({
+                      ...nuevoEjercicio,
+                      tipo: e.target.value as Tipo,
+                    })
+                  }
+                >
                   <option value="fuerza">fuerza</option>
                   <option value="running">running</option>
                   <option value="tiempo">tiempo</option>
@@ -1025,7 +1204,10 @@ export default function EntrenoPage() {
                         setEditRoutine({
                           ...editRoutine,
                           [r.id]: {
-                            ...(editRoutine[r.id] || { name: r.name, days_per_week: String(r.days_per_week) }),
+                            ...(editRoutine[r.id] || {
+                              name: r.name,
+                              days_per_week: String(r.days_per_week),
+                            }),
                             name: e.target.value,
                           },
                         })
@@ -1037,79 +1219,122 @@ export default function EntrenoPage() {
                       type="number"
                       min="1"
                       max="7"
-                      value={editRoutine[r.id]?.days_per_week || String(r.days_per_week)}
+                      value={
+                        editRoutine[r.id]?.days_per_week ||
+                        String(r.days_per_week)
+                      }
                       onChange={(e) =>
                         setEditRoutine({
                           ...editRoutine,
                           [r.id]: {
-                            ...(editRoutine[r.id] || { name: r.name, days_per_week: String(r.days_per_week) }),
+                            ...(editRoutine[r.id] || {
+                              name: r.name,
+                              days_per_week: String(r.days_per_week),
+                            }),
                             days_per_week: e.target.value,
                           },
                         })
                       }
                     />
 
-                    <button onClick={() => actualizarRutina(r)} className="btn-primary">
+                    <button
+                      onClick={() => actualizarRutina(r)}
+                      className="btn-primary"
+                    >
                       Guardar
                     </button>
                   </div>
 
                   <div className="space-y-2">
-                    {routineExercises.filter((e) => e.routine_id === r.id).map((e) => (
-                      <div key={e.id} className="rounded-2xl bg-[#f4fbf7] p-4">
-                        <div className="grid gap-3 md:grid-cols-[1fr_100px_120px_120px_auto]">
-                          <input
-                            className="input"
-                            value={e.nombre}
-                            onChange={(ev) => actualizarEjercicio({ ...e, nombre: ev.target.value })}
-                          />
+                    {routineExercises
+                      .filter((e) => e.routine_id === r.id)
+                      .map((e) => (
+                        <div key={e.id} className="rounded-2xl bg-[#f4fbf7] p-4">
+                          <div className="grid gap-3 md:grid-cols-[1fr_100px_120px_120px_auto]">
+                            <input
+                              className="input"
+                              value={e.nombre}
+                              onChange={(ev) =>
+                                actualizarEjercicio({
+                                  ...e,
+                                  nombre: ev.target.value,
+                                })
+                              }
+                            />
 
-                          <input
-                            className="input"
-                            type="number"
-                            min="1"
-                            value={e.series}
-                            onChange={(ev) => actualizarEjercicio({ ...e, series: Number(ev.target.value) || 1 })}
-                          />
+                            <input
+                              className="input"
+                              type="number"
+                              min="1"
+                              value={e.series}
+                              onChange={(ev) =>
+                                actualizarEjercicio({
+                                  ...e,
+                                  series: Number(ev.target.value) || 1,
+                                })
+                              }
+                            />
 
-                          <select
-                            className="input"
-                            value={e.unidad}
-                            onChange={(ev) => actualizarEjercicio({ ...e, unidad: ev.target.value })}
-                          >
-                            <option value="reps">reps</option>
-                            <option value="km">km</option>
-                            <option value="min">min</option>
-                            <option value="kg">kg</option>
-                          </select>
+                            <select
+                              className="input"
+                              value={e.unidad}
+                              onChange={(ev) =>
+                                actualizarEjercicio({
+                                  ...e,
+                                  unidad: ev.target.value,
+                                })
+                              }
+                            >
+                              <option value="reps">reps</option>
+                              <option value="km">km</option>
+                              <option value="min">min</option>
+                              <option value="kg">kg</option>
+                            </select>
 
-                          <select
-                            className="input"
-                            value={e.tipo}
-                            onChange={(ev) => actualizarEjercicio({ ...e, tipo: ev.target.value as Tipo })}
-                          >
-                            <option value="fuerza">fuerza</option>
-                            <option value="running">running</option>
-                            <option value="tiempo">tiempo</option>
-                            <option value="otro">otro</option>
-                          </select>
+                            <select
+                              className="input"
+                              value={e.tipo}
+                              onChange={(ev) =>
+                                actualizarEjercicio({
+                                  ...e,
+                                  tipo: ev.target.value as Tipo,
+                                })
+                              }
+                            >
+                              <option value="fuerza">fuerza</option>
+                              <option value="running">running</option>
+                              <option value="tiempo">tiempo</option>
+                              <option value="otro">otro</option>
+                            </select>
 
-                          <button onClick={() => borrarEjercicio(e.id)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-600">
-                            Borrar
-                          </button>
+                            <button
+                              onClick={() => borrarEjercicio(e.id)}
+                              className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-600"
+                            >
+                              Borrar
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                    {!routineExercises.filter((e) => e.routine_id === r.id).length && <Empty>Sin ejercicios.</Empty>}
+                      ))}
+
+                    {!routineExercises.filter((e) => e.routine_id === r.id)
+                      .length && <Empty>Sin ejercicios.</Empty>}
                   </div>
 
-                  <button onClick={() => borrarRutina(r.id)} className="mt-4 w-full rounded-2xl bg-red-50 py-3 font-black text-red-600">
+                  <button
+                    onClick={() => borrarRutina(r.id)}
+                    className="mt-4 w-full rounded-2xl bg-red-50 py-3 font-black text-red-600"
+                  >
                     Borrar rutina
                   </button>
                 </Panel>
               ))}
 
-              {!routines.length && <Panel><Empty>No hay rutinas creadas.</Empty></Panel>}
+              {!routines.length && (
+                <Panel>
+                  <Empty>No hay rutinas creadas.</Empty>
+                </Panel>
+              )}
             </div>
           </section>
         )}
@@ -1120,16 +1345,26 @@ export default function EntrenoPage() {
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-2xl font-black">Resumen</h2>
-                  <p className="text-sm text-[#5f7f70]">Comparación semanal, mes y progreso.</p>
+                  <p className="text-sm text-[#5f7f70]">
+                    Comparación semanal, mes y progreso.
+                  </p>
                 </div>
 
-                <input className="input max-w-xs" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+                <input
+                  className="input max-w-xs"
+                  type="month"
+                  value={mes}
+                  onChange={(e) => setMes(e.target.value)}
+                />
               </div>
             </div>
 
             <div className="grid gap-3 md:grid-cols-4">
               <Big title="Días entrenados" value={String(diasEntrenadosMes)} />
-              <Big title="Rutinas mes" value={`${rutinasCompletadasMes}/${rutinasObjetivoMes || "-"}`} />
+              <Big
+                title="Rutinas mes"
+                value={`${rutinasCompletadasMes}/${rutinasObjetivoMes || "-"}`}
+              />
               <Big title="Km mes" value={`${totalKmMes.toFixed(2)} km`} />
               <Big title="Mejor marca" value={mejorMarca || "-"} dark />
             </div>
@@ -1146,7 +1381,9 @@ export default function EntrenoPage() {
                 />
                 <div className="rounded-2xl bg-[#f4fbf7] p-4 text-center">
                   <p className="text-sm font-bold text-[#5f7f70]">Progreso</p>
-                  <p className="text-2xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}</p>
+                  <p className="text-2xl font-black">
+                    {rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}
+                  </p>
                 </div>
               </div>
               <Progress value={porcentajeRutinasMes} />
@@ -1155,14 +1392,28 @@ export default function EntrenoPage() {
             <Panel title="Comparación de semanas">
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-3xl bg-[#f4fbf7] p-5">
-                  <p className="text-sm font-bold text-[#5f7f70]">Semana actual</p>
-                  <p className="mt-2 text-3xl font-black">{semanasComparadas.actual.count} registros</p>
-                  <p className="text-sm text-[#5f7f70]">{semanasComparadas.actual.km.toFixed(2)} km · {semanasComparadas.actual.reps} reps</p>
+                  <p className="text-sm font-bold text-[#5f7f70]">
+                    Semana actual
+                  </p>
+                  <p className="mt-2 text-3xl font-black">
+                    {semanasComparadas.actual.count} registros
+                  </p>
+                  <p className="text-sm text-[#5f7f70]">
+                    {semanasComparadas.actual.km.toFixed(2)} km ·{" "}
+                    {semanasComparadas.actual.reps} reps
+                  </p>
                 </div>
                 <div className="rounded-3xl bg-[#f4fbf7] p-5">
-                  <p className="text-sm font-bold text-[#5f7f70]">Semana anterior</p>
-                  <p className="mt-2 text-3xl font-black">{semanasComparadas.anterior.count} registros</p>
-                  <p className="text-sm text-[#5f7f70]">{semanasComparadas.anterior.km.toFixed(2)} km · {semanasComparadas.anterior.reps} reps</p>
+                  <p className="text-sm font-bold text-[#5f7f70]">
+                    Semana anterior
+                  </p>
+                  <p className="mt-2 text-3xl font-black">
+                    {semanasComparadas.anterior.count} registros
+                  </p>
+                  <p className="text-sm text-[#5f7f70]">
+                    {semanasComparadas.anterior.km.toFixed(2)} km ·{" "}
+                    {semanasComparadas.anterior.reps} reps
+                  </p>
                 </div>
               </div>
             </Panel>
@@ -1170,9 +1421,18 @@ export default function EntrenoPage() {
             <Panel title="Rutinas de la semana">
               <div className="grid gap-3 md:grid-cols-4">
                 {completadasSemana.map((r) => (
-                  <div key={r.routine.id} className={r.done ? "rounded-3xl bg-emerald-100 p-4 text-emerald-800" : "rounded-3xl bg-red-100 p-4 text-red-800"}>
+                  <div
+                    key={r.routine.id}
+                    className={
+                      r.done
+                        ? "rounded-3xl bg-emerald-100 p-4 text-emerald-800"
+                        : "rounded-3xl bg-red-100 p-4 text-red-800"
+                    }
+                  >
                     <p className="font-black">{r.routine.name}</p>
-                    <p className="text-sm font-semibold">{r.done ? "Completada" : "Pendiente"}</p>
+                    <p className="text-sm font-semibold">
+                      {r.done ? "Completada" : "Pendiente"}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -1186,7 +1446,12 @@ export default function EntrenoPage() {
                       <b>{ej}</b>
                       <b>{total}</b>
                     </div>
-                    <Progress value={(total / Math.max(...ejerciciosMes.map((x) => x[1]), 1)) * 100} />
+                    <Progress
+                      value={
+                        (total / Math.max(...ejerciciosMes.map((x) => x[1]), 1)) *
+                        100
+                      }
+                    />
                   </div>
                 ))}
                 {!ejerciciosMes.length && <Empty>Sin datos este mes.</Empty>}
@@ -1195,8 +1460,12 @@ export default function EntrenoPage() {
 
             <Panel title="Exportar / Backup">
               <div className="grid gap-3 md:grid-cols-2">
-                <button onClick={exportarCSV} className="btn-primary">Exportar CSV</button>
-                <button onClick={exportarBackup} className="btn-dark">Backup JSON</button>
+                <button onClick={exportarCSV} className="btn-primary">
+                  Exportar CSV
+                </button>
+                <button onClick={exportarBackup} className="btn-dark">
+                  Backup JSON
+                </button>
               </div>
             </Panel>
           </section>
@@ -1205,31 +1474,75 @@ export default function EntrenoPage() {
         {vista === "registro" && (
           <section className="space-y-5">
             <Panel title={editando ? "Editar registro" : "Carga manual"}>
-              <form onSubmit={guardarManual} className="grid gap-3 md:grid-cols-[140px_1fr_120px_120px_1fr_auto]">
-                <input className="input" type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
-                <input className="input" value={form.ejercicio} onChange={(e) => setForm({ ...form, ejercicio: e.target.value })} />
-                <input className="input" type="number" step="0.01" placeholder="valor" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} />
-                <select className="input" value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })}>
+              <form
+                onSubmit={guardarManual}
+                className="grid gap-3 md:grid-cols-[140px_1fr_120px_120px_1fr_auto]"
+              >
+                <input
+                  className="input"
+                  type="date"
+                  value={form.fecha}
+                  onChange={(e) => setForm({ ...form, fecha: e.target.value })}
+                />
+                <input
+                  className="input"
+                  value={form.ejercicio}
+                  onChange={(e) =>
+                    setForm({ ...form, ejercicio: e.target.value })
+                  }
+                />
+                <input
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  placeholder="valor"
+                  value={form.valor}
+                  onChange={(e) => setForm({ ...form, valor: e.target.value })}
+                />
+                <select
+                  className="input"
+                  value={form.unidad}
+                  onChange={(e) => setForm({ ...form, unidad: e.target.value })}
+                >
                   <option value="reps">reps</option>
                   <option value="km">km</option>
                   <option value="min">min</option>
                   <option value="kg">kg</option>
                 </select>
-                <input className="input" placeholder="nota" value={form.nota} onChange={(e) => setForm({ ...form, nota: e.target.value })} />
-                <button className="btn-primary">{editando ? "Guardar" : "Agregar"}</button>
+                <input
+                  className="input"
+                  placeholder="nota"
+                  value={form.nota}
+                  onChange={(e) => setForm({ ...form, nota: e.target.value })}
+                />
+                <button className="btn-primary">
+                  {editando ? "Guardar" : "Agregar"}
+                </button>
               </form>
             </Panel>
 
             <Panel title="Registro">
               <div className="mb-4">
-                <input className="input max-w-xs" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+                <input
+                  className="input max-w-xs"
+                  type="month"
+                  value={mes}
+                  onChange={(e) => setMes(e.target.value)}
+                />
               </div>
 
               <div className="space-y-3">
                 {entriesMes.map((e) => (
-                  <EntryCard key={e.id} e={e} onEdit={editarEntry} onDelete={borrarEntry} />
+                  <EntryCard
+                    key={e.id}
+                    e={e}
+                    onEdit={editarEntry}
+                    onDelete={borrarEntry}
+                  />
                 ))}
-                {!entriesMes.length && <Empty>No hay registros en este mes.</Empty>}
+                {!entriesMes.length && (
+                  <Empty>No hay registros en este mes.</Empty>
+                )}
               </div>
             </Panel>
           </section>
@@ -1249,28 +1562,67 @@ export default function EntrenoPage() {
                 />
                 <div className="rounded-2xl bg-[#f4fbf7] p-4 text-center">
                   <p className="text-sm font-bold text-[#5f7f70]">Progreso</p>
-                  <p className="text-2xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}</p>
+                  <p className="text-2xl font-black">
+                    {rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}
+                  </p>
                 </div>
               </div>
               <Progress value={porcentajeRutinasMes} />
             </Panel>
 
             <Panel title="Nuevo objetivo por ejercicio">
-              <form onSubmit={guardarObjetivo} className="grid gap-3 md:grid-cols-[1fr_140px_120px_1fr_auto]">
-                <input className="input" placeholder="Ejercicio" value={goalForm.ejercicio} onChange={(e) => setGoalForm({ ...goalForm, ejercicio: e.target.value })} />
-                <input className="input" type="number" step="0.01" placeholder="Objetivo" value={goalForm.objetivo} onChange={(e) => setGoalForm({ ...goalForm, objetivo: e.target.value })} />
-                <select className="input" value={goalForm.unidad} onChange={(e) => setGoalForm({ ...goalForm, unidad: e.target.value })}>
+              <form
+                onSubmit={guardarObjetivo}
+                className="grid gap-3 md:grid-cols-[1fr_140px_120px_1fr_auto]"
+              >
+                <input
+                  className="input"
+                  placeholder="Ejercicio"
+                  value={goalForm.ejercicio}
+                  onChange={(e) =>
+                    setGoalForm({ ...goalForm, ejercicio: e.target.value })
+                  }
+                />
+                <input
+                  className="input"
+                  type="number"
+                  step="0.01"
+                  placeholder="Objetivo"
+                  value={goalForm.objetivo}
+                  onChange={(e) =>
+                    setGoalForm({ ...goalForm, objetivo: e.target.value })
+                  }
+                />
+                <select
+                  className="input"
+                  value={goalForm.unidad}
+                  onChange={(e) =>
+                    setGoalForm({ ...goalForm, unidad: e.target.value })
+                  }
+                >
                   <option value="reps">reps</option>
                   <option value="km">km</option>
                   <option value="min">min</option>
                   <option value="kg">kg</option>
                 </select>
-                <input className="input" placeholder="Nota" value={goalForm.nota} onChange={(e) => setGoalForm({ ...goalForm, nota: e.target.value })} />
+                <input
+                  className="input"
+                  placeholder="Nota"
+                  value={goalForm.nota}
+                  onChange={(e) =>
+                    setGoalForm({ ...goalForm, nota: e.target.value })
+                  }
+                />
                 <button className="btn-primary">Agregar</button>
               </form>
             </Panel>
 
-            <ObjetivosPanel title="Objetivos por ejercicio" goals={goals} entries={entries} onDelete={borrarObjetivo} />
+            <ObjetivosPanel
+              title="Objetivos por ejercicio"
+              goals={goals}
+              entries={entries}
+              onDelete={borrarObjetivo}
+            />
           </section>
         )}
       </div>
@@ -1411,7 +1763,15 @@ function descargar(nombre: string, contenido: string, tipo: string) {
   URL.revokeObjectURL(url);
 }
 
-function Nav({ activo, children, onClick }: { activo: boolean; children: React.ReactNode; onClick: () => void }) {
+function Nav({
+  activo,
+  children,
+  onClick,
+}: {
+  activo: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={onClick}
@@ -1426,7 +1786,13 @@ function Nav({ activo, children, onClick }: { activo: boolean; children: React.R
   );
 }
 
-function Panel({ title, children }: { title?: string; children: React.ReactNode }) {
+function Panel({
+  title,
+  children,
+}: {
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-[34px] border border-[#d8f0e5] bg-white p-5 shadow-[0_18px_60px_rgba(11,48,36,0.08)]">
       {title && <h2 className="mb-4 text-2xl font-black">{title}</h2>}
@@ -1444,22 +1810,54 @@ function Mini({ title, value }: { title: string; value: string }) {
   );
 }
 
-function Big({ title, value, dark }: { title: string; value: string; dark?: boolean }) {
+function Big({
+  title,
+  value,
+  dark,
+}: {
+  title: string;
+  value: string;
+  dark?: boolean;
+}) {
   return (
-    <div className={dark ? "rounded-[30px] bg-gradient-to-br from-[#11a36b] to-[#064d35] p-5 text-white" : "rounded-[30px] border border-[#d8f0e5] bg-white p-5"}>
-      <p className={dark ? "text-sm font-semibold text-white/70" : "text-sm font-semibold text-[#5f7f70]"}>{title}</p>
+    <div
+      className={
+        dark
+          ? "rounded-[30px] bg-gradient-to-br from-[#11a36b] to-[#064d35] p-5 text-white"
+          : "rounded-[30px] border border-[#d8f0e5] bg-white p-5"
+      }
+    >
+      <p
+        className={
+          dark
+            ? "text-sm font-semibold text-white/70"
+            : "text-sm font-semibold text-[#5f7f70]"
+        }
+      >
+        {title}
+      </p>
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
   );
 }
 
-function EntryCard({ e, onEdit, onDelete }: { e: Entry; onEdit: (e: Entry) => void; onDelete: (id: string) => void }) {
+function EntryCard({
+  e,
+  onEdit,
+  onDelete,
+}: {
+  e: Entry;
+  onEdit: (e: Entry) => void;
+  onDelete: (id: string) => void;
+}) {
   return (
     <div className="rounded-3xl border border-[#d8f0e5] bg-white p-4">
       <div className="flex justify-between gap-3">
         <div>
           <p className="text-lg font-black">{e.ejercicio}</p>
-          <p className="text-sm text-[#5f7f70]">{e.fecha} · {e.tipo} · {e.nota || "sin nota"}</p>
+          <p className="text-sm text-[#5f7f70]">
+            {e.fecha} · {e.tipo} · {e.nota || "sin nota"}
+          </p>
         </div>
 
         <p className="text-xl font-black text-[#0f7a4f]">
@@ -1468,10 +1866,16 @@ function EntryCard({ e, onEdit, onDelete }: { e: Entry; onEdit: (e: Entry) => vo
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <button onClick={() => onEdit(e)} className="rounded-2xl bg-[#e6f8ef] py-3 font-black text-[#0f7a4f]">
+        <button
+          onClick={() => onEdit(e)}
+          className="rounded-2xl bg-[#e6f8ef] py-3 font-black text-[#0f7a4f]"
+        >
           Editar
         </button>
-        <button onClick={() => onDelete(e.id)} className="rounded-2xl bg-red-50 py-3 font-black text-red-600">
+        <button
+          onClick={() => onDelete(e.id)}
+          className="rounded-2xl bg-red-50 py-3 font-black text-red-600"
+        >
           Borrar
         </button>
       </div>
@@ -1505,9 +1909,14 @@ function ObjetivosPanel({
                   <p className="text-sm text-[#5f7f70]">
                     Objetivo: {g.objetivo} {g.unidad} · Mejor: {mejor} {g.unidad}
                   </p>
-                  {g.nota && <p className="mt-1 text-sm text-[#5f7f70]">{g.nota}</p>}
+                  {g.nota && (
+                    <p className="mt-1 text-sm text-[#5f7f70]">{g.nota}</p>
+                  )}
                 </div>
-                <button onClick={() => onDelete(g.id)} className="rounded-2xl bg-red-50 px-4 py-2 font-black text-red-600">
+                <button
+                  onClick={() => onDelete(g.id)}
+                  className="rounded-2xl bg-red-50 px-4 py-2 font-black text-red-600"
+                >
                   Borrar
                 </button>
               </div>
@@ -1525,9 +1934,21 @@ function Progress({ value, light }: { value: number; light?: boolean }) {
   const v = Math.min(Math.max(value, 0), 100);
 
   return (
-    <div className={light ? "mt-3 h-3 overflow-hidden rounded-full bg-white/30" : "mt-3 h-3 overflow-hidden rounded-full bg-[#d8f0e5]"}>
+    <div
+      className={
+        light
+          ? "mt-3 h-3 overflow-hidden rounded-full bg-white/30"
+          : "mt-3 h-3 overflow-hidden rounded-full bg-[#d8f0e5]"
+      }
+    >
       <div
-        className={light ? "h-full rounded-full bg-white" : value >= 100 ? "h-full rounded-full bg-[#11a36b]" : "h-full rounded-full bg-gradient-to-r from-[#4ade80] to-[#0f7a4f]"}
+        className={
+          light
+            ? "h-full rounded-full bg-white"
+            : value >= 100
+            ? "h-full rounded-full bg-[#11a36b]"
+            : "h-full rounded-full bg-gradient-to-r from-[#4ade80] to-[#0f7a4f]"
+        }
         style={{ width: `${v}%` }}
       />
     </div>
@@ -1535,5 +1956,9 @@ function Progress({ value, light }: { value: number; light?: boolean }) {
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="rounded-2xl bg-[#f4fbf7] p-5 text-center text-[#5f7f70]">{children}</p>;
+  return (
+    <p className="rounded-2xl bg-[#f4fbf7] p-5 text-center text-[#5f7f70]">
+      {children}
+    </p>
+  );
 }
