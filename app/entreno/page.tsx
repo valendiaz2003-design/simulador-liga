@@ -109,7 +109,8 @@ export default function EntrenoPage() {
   const [editando, setEditando] = useState<string | null>(null);
 
   const [quickValues, setQuickValues] = useState<Record<string, string>>({});
-  const [quickNotes, setQuickNotes] = useState<Record<string, string>>({});
+  const [ejerciciosAbiertos, setEjerciciosAbiertos] = useState<Record<string, boolean>>({});
+  const [rutinaCompletaAbierta, setRutinaCompletaAbierta] = useState(false);
 
   const [nuevaRutina, setNuevaRutina] = useState({
     name: "",
@@ -157,17 +158,17 @@ export default function EntrenoPage() {
       const icon = document.createElement("link");
       icon.rel = "icon";
       icon.type = "image/png";
-      icon.href = "/images/entreno-logo.png?v=trainc9";
+      icon.href = "/images/entreno-logo.png?v=trainc10";
       document.head.appendChild(icon);
 
       const shortcut = document.createElement("link");
       shortcut.rel = "shortcut icon";
-      shortcut.href = "/images/entreno-logo.png?v=trainc9";
+      shortcut.href = "/images/entreno-logo.png?v=trainc10";
       document.head.appendChild(shortcut);
 
       const apple = document.createElement("link");
       apple.rel = "apple-touch-icon";
-      apple.href = "/images/entreno-logo.png?v=trainc9";
+      apple.href = "/images/entreno-logo.png?v=trainc10";
       document.head.appendChild(apple);
     };
 
@@ -390,6 +391,7 @@ export default function EntrenoPage() {
     const data = editRoutine[routine.id];
     if (!data?.name.trim()) return;
 
+    const oldName = routine.name;
     const updated: Routine = {
       ...routine,
       name: data.name.trim(),
@@ -397,6 +399,11 @@ export default function EntrenoPage() {
     };
 
     setRoutines(routines.map((r) => (r.id === routine.id ? updated : r)));
+    setCompletions(
+      completions.map((c) =>
+        c.routine === oldName ? { ...c, routine: updated.name } : c
+      )
+    );
     setEstado("Guardando...");
 
     const { error } = await supabase.from("workout_routines").upsert({
@@ -406,6 +413,15 @@ export default function EntrenoPage() {
       color: updated.color,
       active: updated.active,
     });
+
+    if (!error && oldName !== updated.name) {
+      const affected = completions.filter((c) => c.routine === oldName);
+      for (const c of affected) {
+        await supabase
+          .from("workout_routine_completions")
+          .upsert({ ...c, routine: updated.name });
+      }
+    }
 
     setEstado(error ? "Error online" : "Sincronizado");
     if (error) alert(error.message);
@@ -581,11 +597,10 @@ export default function EntrenoPage() {
       ejercicio: ej.nombre,
       valor: Number(raw),
       unidad: ej.unidad,
-      nota: `Serie ${serie}${quickNotes[key] ? ` · ${quickNotes[key]}` : ""}`,
+      nota: `Serie ${serie}`,
     });
 
     setQuickValues({ ...quickValues, [key]: "" });
-    setQuickNotes({ ...quickNotes, [key]: "" });
   }
 
   async function guardarManual(e: React.FormEvent) {
@@ -735,7 +750,7 @@ export default function EntrenoPage() {
           </div>
         </header>
 
-        <nav className="sticky top-3 z-30 mb-5 flex gap-2 rounded-[24px] border border-[#d8f0e5] bg-white/90 p-2 shadow-[0_14px_45px_rgba(11,48,36,0.08)] overflow-x-auto">
+        <nav className="sticky top-3 z-30 mb-5 flex gap-2 overflow-x-auto rounded-[24px] border border-[#d8f0e5] bg-white/90 p-2 shadow-[0_14px_45px_rgba(11,48,36,0.08)]">
           <Nav activo={vista === "inicio"} onClick={() => setVista("inicio")}>Inicio</Nav>
           <Nav activo={vista === "rutinas"} onClick={() => setVista("rutinas")}>Rutinas</Nav>
           <Nav activo={vista === "resumen"} onClick={() => setVista("resumen")}>Resumen</Nav>
@@ -815,64 +830,77 @@ export default function EntrenoPage() {
             {rutinaActiva && (
               <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
                 <Panel title={`${rutinaActiva.name} · ${fechaBonita(fechaSeleccionada)}`}>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {ejerciciosRutina.map((ej) => {
+                      const abierto = ejerciciosAbiertos[ej.id] || false;
                       const ultima = ultimaMarca(ordenados, ej.nombre, ej.unidad);
                       const delDia = ordenados.filter(
                         (e) => e.fecha === fechaSeleccionada && e.ejercicio === ej.nombre
                       );
 
                       return (
-                        <div key={ej.id} className="rounded-3xl border border-[#d8f0e5] bg-[#f6fffa] p-4">
-                          <div className="mb-3">
-                            <h3 className="text-xl font-black">{ej.nombre}</h3>
-                            <p className="text-sm text-[#5f7f70]">
-                              {ej.series} series · Última marca:{" "}
-                              <b>{ultima ? `${ultima.valor} ${ultima.unidad} (${ultima.fecha})` : "sin datos"}</b>
-                            </p>
-                            <p className="text-sm text-[#5f7f70]">
-                              Cargado ese día:{" "}
-                              <b>{delDia.length ? delDia.map((x) => `${x.nota}: ${x.valor} ${x.unidad}`).join(" · ") : "nada todavía"}</b>
-                            </p>
-                          </div>
+                        <div key={ej.id} className="overflow-hidden rounded-3xl border border-[#d8f0e5] bg-[#f6fffa]">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEjerciciosAbiertos({
+                                ...ejerciciosAbiertos,
+                                [ej.id]: !abierto,
+                              })
+                            }
+                            className="w-full p-4 text-left"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <h3 className="text-xl font-black">{ej.nombre}</h3>
+                                <p className="text-sm text-[#5f7f70]">
+                                  {ej.series} series · Última:{" "}
+                                  <b>{ultima ? `${ultima.valor} ${ultima.unidad}` : "sin datos"}</b>
+                                </p>
+                                <p className="text-sm text-[#5f7f70]">
+                                  Hoy:{" "}
+                                  <b>{delDia.length ? delDia.map((x) => `${x.nota}: ${x.valor}`).join(" · ") : "sin cargar"}</b>
+                                </p>
+                              </div>
 
-                          <div className="space-y-2">
-                            {Array.from({ length: Math.max(ej.series, 1) }, (_, i) => i + 1).map((serie) => {
-                              const key = `${ej.id}-${serie}`;
+                              <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f7a4f]">
+                                {abierto ? "Cerrar" : "Cargar"}
+                              </span>
+                            </div>
+                          </button>
 
-                              return (
-                                <div key={key} className="grid gap-2 md:grid-cols-[90px_130px_1fr_auto]">
-                                  <div className="rounded-2xl bg-white px-4 py-3 font-black text-[#0f7a4f]">
-                                    Serie {serie}
-                                  </div>
+                          {abierto && (
+                            <div className="border-t border-[#d8f0e5] p-4 pt-3">
+                              <div className="space-y-2">
+                                {Array.from({ length: Math.max(ej.series, 1) }, (_, i) => i + 1).map((serie) => {
+                                  const key = `${ej.id}-${serie}`;
 
-                                  <input
-                                    className="input"
-                                    type="number"
-                                    step="0.01"
-                                    placeholder={ej.unidad}
-                                    value={quickValues[key] || ""}
-                                    onChange={(e) =>
-                                      setQuickValues({ ...quickValues, [key]: e.target.value })
-                                    }
-                                  />
+                                  return (
+                                    <div key={key} className="grid grid-cols-[86px_1fr_auto] gap-2">
+                                      <div className="rounded-2xl bg-white px-4 py-3 font-black text-[#0f7a4f]">
+                                        Serie {serie}
+                                      </div>
 
-                                  <input
-                                    className="input"
-                                    placeholder="nota"
-                                    value={quickNotes[key] || ""}
-                                    onChange={(e) =>
-                                      setQuickNotes({ ...quickNotes, [key]: e.target.value })
-                                    }
-                                  />
+                                      <input
+                                        className="input"
+                                        type="number"
+                                        step="0.01"
+                                        placeholder={ej.unidad}
+                                        value={quickValues[key] || ""}
+                                        onChange={(e) =>
+                                          setQuickValues({ ...quickValues, [key]: e.target.value })
+                                        }
+                                      />
 
-                                  <button onClick={() => guardarSerie(ej, serie)} className="btn-primary">
-                                    Guardar
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
+                                      <button onClick={() => guardarSerie(ej, serie)} className="btn-primary">
+                                        Guardar
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -880,18 +908,43 @@ export default function EntrenoPage() {
                     {!ejerciciosRutina.length && <Empty>Esta rutina todavía no tiene ejercicios.</Empty>}
                   </div>
 
-                  <button
-                    onClick={() => completarRutina(rutinaActiva)}
-                    className={
-                      completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
-                        ? "mt-5 w-full rounded-2xl bg-emerald-100 py-4 font-black text-emerald-800"
-                        : "mt-5 w-full rounded-2xl bg-gradient-to-r from-[#11a36b] to-[#0f7a4f] py-4 font-black text-white"
-                    }
-                  >
-                    {completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
-                      ? "Rutina completada"
-                      : "Marcar rutina como completa"}
-                  </button>
+                  <div className="mt-5 overflow-hidden rounded-3xl border border-[#d8f0e5] bg-[#f6fffa]">
+                    <button
+                      type="button"
+                      onClick={() => setRutinaCompletaAbierta(!rutinaCompletaAbierta)}
+                      className="flex w-full items-center justify-between p-4 text-left"
+                    >
+                      <div>
+                        <h3 className="text-xl font-black">Finalizar rutina</h3>
+                        <p className="text-sm text-[#5f7f70]">
+                          {completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
+                            ? "Esta rutina ya está marcada como completa."
+                            : "Abrí esta sección cuando termines todo."}
+                        </p>
+                      </div>
+
+                      <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-[#0f7a4f]">
+                        {rutinaCompletaAbierta ? "Cerrar" : "Abrir"}
+                      </span>
+                    </button>
+
+                    {rutinaCompletaAbierta && (
+                      <div className="border-t border-[#d8f0e5] p-4">
+                        <button
+                          onClick={() => completarRutina(rutinaActiva)}
+                          className={
+                            completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
+                              ? "w-full rounded-2xl bg-emerald-100 py-4 font-black text-emerald-800"
+                              : "w-full rounded-2xl bg-gradient-to-r from-[#11a36b] to-[#0f7a4f] py-4 font-black text-white"
+                          }
+                        >
+                          {completions.some((c) => c.routine === rutinaActiva.name && c.fecha === fechaSeleccionada)
+                            ? "Rutina completada"
+                            : "Marcar rutina como completa"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </Panel>
 
                 <section className="space-y-4">
@@ -1364,8 +1417,8 @@ function Nav({ activo, children, onClick }: { activo: boolean; children: React.R
       onClick={onClick}
       className={
         activo
-          ? "flex-1 rounded-2xl bg-gradient-to-r from-[#11a36b] to-[#0f7a4f] px-4 py-3 font-black text-white"
-          : "flex-1 rounded-2xl px-4 py-3 font-black text-[#5f7f70]"
+          ? "min-w-28 flex-1 rounded-2xl bg-gradient-to-r from-[#11a36b] to-[#0f7a4f] px-4 py-3 font-black text-white"
+          : "min-w-28 flex-1 rounded-2xl px-4 py-3 font-black text-[#5f7f70]"
       }
     >
       {children}

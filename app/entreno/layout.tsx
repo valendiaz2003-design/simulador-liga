@@ -3,9 +3,14 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "TrainC+",
   icons: {
-    icon: "/images/entreno-logo.png?v=trainc8",
-    shortcut: "/images/entreno-logo.png?v=trainc8",
-    apple: "/images/entreno-logo.png?v=trainc8",
+    icon: "/images/entreno-logo.png",
+    shortcut: "/images/entreno-logo.png",
+    apple: "/images/entreno-logo.png",
+  },
+  appleWebApp: {
+    title: "TrainC+",
+    capable: true,
+    statusBarStyle: "default",
   },
 };
 
