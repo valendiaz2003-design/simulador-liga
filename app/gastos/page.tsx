@@ -85,7 +85,7 @@ export default function GastosPage() {
   const [vista, setVista] = useState<Vista>("inicio");
   const [menu, setMenu] = useState(false);
   const [cargando, setCargando] = useState(true);
-  const [estadoOnline, setEstadoOnline] = useState("Sincronizando...");
+  const [estadoOnline, setEstadoOnline] = useState("Sincronizado");
 
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [categoriasGasto, setCategoriasGasto] = useState<string[]>(categoriasGastoBase);
@@ -107,38 +107,40 @@ export default function GastosPage() {
     detalle: "",
   });
 
-  const categoriasActuales = form.tipo === "gasto" ? categoriasGasto : categoriasIngreso;
-
   useEffect(() => {
+    document.title = "FinanC+";
+
+    const existingIcons = document.querySelectorAll(
+      "link[rel*='icon']"
+    );
+
+    existingIcons.forEach((i) => i.remove());
+
+    const icon = document.createElement("link");
+    icon.rel = "icon";
+    icon.type = "image/png";
+    icon.href = "/images/financ-logo.png";
+    document.head.appendChild(icon);
+
     cargarDatos();
   }, []);
 
   async function cargarDatos() {
-    setCargando(true);
-    setEstadoOnline("Sincronizando...");
-
-    const { data: movs, error: movError } = await supabase
+    const { data: movs } = await supabase
       .from("movements")
       .select("*")
       .order("fecha", { ascending: false });
 
-    const { data: cats } = await supabase.from("categories").select("*");
-    const { data: buds } = await supabase.from("budgets").select("*");
-    const { data: lims } = await supabase.from("category_limits").select("*");
-
-    if (movError) {
-      setEstadoOnline("Error online");
-      alert("Error cargando datos online: " + movError.message);
-      setCargando(false);
-      return;
-    }
+    const { data: buds } = await supabase
+      .from("budgets")
+      .select("*");
 
     if (movs) {
       setMovimientos(
         movs.map((m) => ({
           id: m.id,
           fecha: m.fecha,
-          tipo: m.tipo as Tipo,
+          tipo: m.tipo,
           categoria: m.categoria,
           detalle: m.detalle || "",
           monto: Number(m.monto),
@@ -146,544 +148,393 @@ export default function GastosPage() {
       );
     }
 
-    if (cats && cats.length > 0) {
-      const nombres = cats.map((c) => c.name);
-      setCategoriasGasto(
-        unicos([...categoriasGastoBase, ...nombres.filter((x) => !categoriasIngresoBase.includes(x))])
-      );
-      setCategoriasIngreso(unicos([...categoriasIngresoBase]));
-    }
-
     if (buds) {
       const map: Record<string, number> = {};
+
       buds.forEach((b) => {
         map[b.month] = Number(b.amount);
       });
+
       setPresupuestos(map);
     }
 
-    if (lims) {
-      const map: Record<string, Record<string, number>> = {};
-      lims.forEach((l) => {
-        if (!map[l.month]) map[l.month] = {};
-        map[l.month][l.category] = Number(l.amount);
-      });
-      setLimites(map);
-    }
-
-    setEstadoOnline("Sincronizado");
     setCargando(false);
   }
+
+  const categoriasActuales =
+    form.tipo === "gasto"
+      ? categoriasGasto
+      : categoriasIngreso;
 
   const ordenados = useMemo(
     () => [...movimientos].sort((a, b) => a.fecha.localeCompare(b.fecha)),
     [movimientos]
   );
 
-  const movimientosMes = ordenados.filter((m) => m.fecha.startsWith(mes));
-  const movimientosAnio = ordenados.filter((m) => m.fecha.startsWith(anio));
+  const movimientosMes = ordenados.filter((m) =>
+    m.fecha.startsWith(mes)
+  );
 
-  const saldoAntesMes = calcularSaldoHasta(ordenados, mes + "-01");
+  const saldoActual = calcularSaldoHasta(
+    ordenados,
+    "9999-12-31"
+  );
+
   const ingresosMes = sumar(movimientosMes, "ingreso");
   const gastosMes = sumar(movimientosMes, "gasto");
-  const balanceMes = ingresosMes - gastosMes;
-  const saldoFinalMes = saldoAntesMes + balanceMes;
-  const saldoActual = calcularSaldoHasta(ordenados, "9999-12-31");
 
   const presupuestoMes = presupuestos[mes] || 0;
-  const restantePresupuesto = presupuestoMes - gastosMes;
-
-  const hoyStr = hoyLocal();
-  const diasRestantesIncluyendoHoy = calcularDiasRestantesIncluyendoHoy(mes);
-
-  const gastosAntesDeHoy = movimientosMes
-    .filter((m) => m.tipo === "gasto" && m.fecha < hoyStr)
-    .reduce((acc, m) => acc + m.monto, 0);
 
   const gastosHoy = movimientosMes
-    .filter((m) => m.tipo === "gasto" && m.fecha === hoyStr)
-    .reduce((acc, m) => acc + m.monto, 0);
+    .filter(
+      (m) =>
+        m.tipo === "gasto" &&
+        m.fecha === hoyLocal()
+    )
+    .reduce((a, b) => a + b.monto, 0);
 
-  const presupuestoRestanteAntesDeHoy = presupuestoMes - gastosAntesDeHoy;
+  const gastosAntesDeHoy = movimientosMes
+    .filter(
+      (m) =>
+        m.tipo === "gasto" &&
+        m.fecha < hoyLocal()
+    )
+    .reduce((a, b) => a + b.monto, 0);
+
+  const diasRestantes =
+    calcularDiasRestantesIncluyendoHoy(mes);
 
   const permitidoHoy =
-    diasRestantesIncluyendoHoy > 0
-      ? presupuestoRestanteAntesDeHoy / diasRestantesIncluyendoHoy
-      : presupuestoRestanteAntesDeHoy;
+    diasRestantes > 0
+      ? (presupuestoMes - gastosAntesDeHoy) /
+        diasRestantes
+      : 0;
 
-  const disponibleHoy = permitidoHoy - gastosHoy;
-
-  const ingresosAnio = sumar(movimientosAnio, "ingreso");
-  const gastosAnio = sumar(movimientosAnio, "gasto");
-  const balanceAnio = ingresosAnio - gastosAnio;
-
-  const categoriasMes = resumenCategorias(movimientosMes);
-  const ingresosPorCategoria = resumenCategoriasTipo(movimientosMes, "ingreso");
-  const diasMes = resumenDias(movimientosMes);
-  const mesesDelAnio = resumenMeses(ordenados, anio);
-  const evolucion = evolucionSaldo(ordenados, anio);
+  const disponibleHoy =
+    permitidoHoy - gastosHoy;
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!form.monto || Number(form.monto) <= 0) return;
+    if (!form.monto) return;
 
     const nuevo: Movimiento = {
-      id: editando || crypto.randomUUID(),
+      id: crypto.randomUUID(),
       fecha: form.fecha,
       tipo: form.tipo,
       categoria: form.categoria,
-      detalle: form.detalle.trim(),
+      detalle: form.detalle,
       monto: Number(form.monto),
     };
 
-    setMovimientos(
-      editando
-        ? movimientos.map((m) => (m.id === editando ? nuevo : m))
-        : [nuevo, ...movimientos]
-    );
+    setMovimientos([nuevo, ...movimientos]);
 
-    setEstadoOnline("Guardando...");
+    await supabase
+      .from("movements")
+      .insert(nuevo);
 
-    const { error } = await supabase.from("movements").upsert({
-      id: nuevo.id,
-      fecha: nuevo.fecha,
-      tipo: nuevo.tipo,
-      categoria: nuevo.categoria,
-      detalle: nuevo.detalle,
-      monto: nuevo.monto,
-    });
-
-    if (error) {
-      setEstadoOnline("Error online");
-      alert("No se pudo guardar online: " + error.message);
-      return;
-    }
-
-    setEstadoOnline("Sincronizado");
-    setEditando(null);
     setForm({
       fecha: hoyLocal(),
       tipo: "gasto",
-      categoria: categoriasGasto[0] || "Comida",
+      categoria: "Comida",
       monto: "",
       detalle: "",
     });
   }
 
-  function cambiarTipo(tipo: Tipo) {
-    setForm({
-      ...form,
-      tipo,
-      categoria: tipo === "gasto" ? categoriasGasto[0] : categoriasIngreso[0],
-    });
-  }
-
-  function editar(m: Movimiento) {
-    setForm({
-      fecha: m.fecha,
-      tipo: m.tipo,
-      categoria: m.categoria,
-      monto: String(m.monto),
-      detalle: m.detalle,
-    });
-    setEditando(m.id);
-    setVista("inicio");
-  }
-
-  async function borrar(id: string) {
-    if (!confirm("¿Borrar movimiento?")) return;
-
-    setMovimientos(movimientos.filter((m) => m.id !== id));
-    setEstadoOnline("Guardando...");
-
-    const { error } = await supabase.from("movements").delete().eq("id", id);
-
-    if (error) {
-      setEstadoOnline("Error online");
-      alert("No se pudo borrar online: " + error.message);
-      return;
-    }
-
-    setEstadoOnline("Sincronizado");
-  }
-
-  async function guardarPresupuesto(amount: number) {
-    setPresupuestos({
-      ...presupuestos,
-      [mes]: amount,
-    });
-
-    setEstadoOnline("Guardando...");
-
-    const { error } = await supabase.from("budgets").upsert({
-      month: mes,
-      amount,
-    });
-
-    setEstadoOnline(error ? "Error online" : "Sincronizado");
-    if (error) alert("No se pudo guardar presupuesto: " + error.message);
-  }
-
-  async function guardarLimite(cat: string, amount: number) {
-    setLimites({
-      ...limites,
-      [mes]: {
-        ...(limites[mes] || {}),
-        [cat]: amount,
-      },
-    });
-
-    setEstadoOnline("Guardando...");
-
-    const { error } = await supabase.from("category_limits").upsert({
-      month: mes,
-      category: cat,
-      amount,
-    });
-
-    setEstadoOnline(error ? "Error online" : "Sincronizado");
-    if (error) alert("No se pudo guardar límite: " + error.message);
-  }
-
-  async function agregarCategoria(e: React.FormEvent) {
-    e.preventDefault();
-
-    const c = nuevaCategoria.trim();
-    if (!c) return;
-
-    if (tipoNuevaCategoria === "gasto") {
-      if (categoriasGasto.includes(c)) return;
-      setCategoriasGasto([...categoriasGasto, c]);
-    } else {
-      if (categoriasIngreso.includes(c)) return;
-      setCategoriasIngreso([...categoriasIngreso, c]);
-    }
-
-    setNuevaCategoria("");
-    setEstadoOnline("Guardando...");
-
-    const { error } = await supabase.from("categories").upsert({
-      name: c,
-    });
-
-    setEstadoOnline(error ? "Error online" : "Sincronizado");
-    if (error) alert("No se pudo guardar categoría: " + error.message);
-  }
-
-  function exportarCSV() {
-    const filas = [
-      ["Fecha", "Tipo", "Categoria", "Detalle", "Monto"],
-      ...movimientosMes.map((m) => [m.fecha, m.tipo, m.categoria, m.detalle, String(m.monto)]),
-    ];
-
-    const blob = new Blob([filas.map((f) => f.join(";")).join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `financ-${mes}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   return (
     <main className="min-h-screen bg-[#f2f8fc] text-[#08244a]">
       <div className="mx-auto max-w-7xl px-4 py-5">
-        <header className="mb-5 rounded-[32px] border border-[#d6ebf7] bg-white/90 p-5 shadow-[0_18px_60px_rgba(6,67,120,0.10)] backdrop-blur">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <header className="mb-5 rounded-[32px] border border-[#d6ebf7] bg-white/90 p-5 shadow-[0_18px_60px_rgba(6,67,120,0.10)]">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-[#e9f7ff]">
-                <Image src="/images/financ-logo.png" alt="FinanC+" fill className="object-contain p-1" priority />
+                <Image
+                  src="/images/financ-logo.png"
+                  alt="FinanC+"
+                  fill
+                  className="object-contain p-1"
+                />
               </div>
 
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#68b8df]">
                   Finanzas personales
                 </p>
+
                 <h1 className="mt-1 text-3xl font-black tracking-tight text-[#07559d] md:text-4xl">
                   FinanC+
                 </h1>
+
                 <p className="mt-1 text-sm font-semibold text-[#55708e]">
-                  {cargando ? "Cargando datos..." : estadoOnline}
+                  {cargando
+                    ? "Cargando..."
+                    : estadoOnline}
                 </p>
               </div>
             </div>
 
             <div className="rounded-2xl border border-[#d7e9f5] bg-[#f7fbff] px-5 py-3 text-right">
-              <p className="font-black text-[#07559d]">{fechaBonita()}</p>
+              <p className="font-black text-[#07559d]">
+                {fechaBonita()}
+              </p>
             </div>
           </div>
         </header>
 
-        <nav className="sticky top-3 z-30 mb-5 flex gap-2 rounded-[24px] border border-[#d6ebf7] bg-white/90 p-2 shadow-[0_14px_45px_rgba(6,67,120,0.08)] backdrop-blur">
-          <Nav activo={vista === "inicio"} onClick={() => setVista("inicio")}>Inicio</Nav>
-          <Nav activo={vista === "resumen"} onClick={() => setVista("resumen")}>Resumen</Nav>
+        <nav className="sticky top-3 z-30 mb-5 flex gap-2 rounded-[24px] border border-[#d6ebf7] bg-white/90 p-2 shadow-[0_14px_45px_rgba(6,67,120,0.08)]">
+          <Nav
+            activo={vista === "inicio"}
+            onClick={() => setVista("inicio")}
+          >
+            Inicio
+          </Nav>
+
+          <Nav
+            activo={vista === "resumen"}
+            onClick={() => setVista("resumen")}
+          >
+            Resumen
+          </Nav>
 
           <div className="relative flex-1">
-            <button onClick={() => setMenu(!menu)} className="w-full rounded-2xl px-4 py-3 font-black text-[#5a7190]">
+            <button
+              onClick={() => setMenu(!menu)}
+              className="w-full rounded-2xl px-4 py-3 font-black text-[#5a7190]"
+            >
               Más
             </button>
 
             {menu && (
               <div className="absolute right-0 top-14 w-56 rounded-3xl border border-[#d6ebf7] bg-white p-2 shadow-xl">
-                <Drop onClick={() => { setVista("movimientos"); setMenu(false); }}>Movimientos</Drop>
-                <Drop onClick={() => { setVista("plan"); setMenu(false); }}>Presupuesto</Drop>
-                <Drop onClick={() => { setVista("config"); setMenu(false); }}>Configuración</Drop>
+                <Drop
+                  onClick={() => {
+                    setVista("movimientos");
+                    setMenu(false);
+                  }}
+                >
+                  Movimientos
+                </Drop>
+
+                <Drop
+                  onClick={() => {
+                    setVista("plan");
+                    setMenu(false);
+                  }}
+                >
+                  Presupuesto
+                </Drop>
+
+                <Drop
+                  onClick={() => {
+                    setVista("config");
+                    setMenu(false);
+                  }}
+                >
+                  Configuración
+                </Drop>
               </div>
             )}
           </div>
         </nav>
 
-        {vista === "inicio" && (
-          <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-            <Panel>
-              <h2 className="text-2xl font-black text-[#08244a]">{editando ? "Editar movimiento" : "Carga rápida"}</h2>
-              <p className="mb-5 mt-1 text-sm text-[#55708e]">Diseñado para cargar desde el celular en segundos.</p>
+        <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+          <Panel>
+            <h2 className="text-2xl font-black">
+              Carga rápida
+            </h2>
 
-              <form onSubmit={guardar} className="space-y-5">
-                <Field label="Fecha">
-                  <input className="input" type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
-                </Field>
+            <p className="mb-5 mt-1 text-sm text-[#55708e]">
+              Diseñado para cargar desde el celular en segundos.
+            </p>
 
-                <Field label="Tipo">
-                  <div className="grid grid-cols-2 gap-2">
-                    <Option active={form.tipo === "gasto"} onClick={() => cambiarTipo("gasto")}>Gasto</Option>
-                    <Option active={form.tipo === "ingreso"} onClick={() => cambiarTipo("ingreso")}>Ingreso</Option>
-                  </div>
-                </Field>
+            <form
+              onSubmit={guardar}
+              className="space-y-5"
+            >
+              <Field label="Fecha">
+                <input
+                  className="input"
+                  type="date"
+                  value={form.fecha}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      fecha: e.target.value,
+                    })
+                  }
+                />
+              </Field>
 
-                <Field label={form.tipo === "gasto" ? "Categoría de gasto" : "Categoría de ingreso"}>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                    {categoriasActuales.map((c) => (
-                      <Option key={c} active={form.categoria === c} onClick={() => setForm({ ...form, categoria: c })}>{c}</Option>
-                    ))}
-                  </div>
-                </Field>
+              <Field label="Tipo">
+                <div className="grid grid-cols-2 gap-2">
+                  <Option
+                    active={form.tipo === "gasto"}
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        tipo: "gasto",
+                        categoria:
+                          categoriasGasto[0],
+                      })
+                    }
+                  >
+                    Gasto
+                  </Option>
 
-                <Field label="Monto">
-                  <input className="input text-4xl font-black" autoFocus type="number" step="0.01" placeholder="0,00" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} />
-                </Field>
-
-                <Field label="Detalle">
-                  <input className="input" placeholder="Ej: supermercado, sueldo, préstamo..." value={form.detalle} onChange={(e) => setForm({ ...form, detalle: e.target.value })} />
-                </Field>
-
-                <button className="w-full rounded-2xl bg-gradient-to-r from-[#008bd2] to-[#075db5] py-4 font-black text-white shadow-[0_12px_30px_rgba(0,139,210,0.25)]">
-                  {editando ? "Guardar cambios" : "Guardar movimiento"}
-                </button>
-              </form>
-            </Panel>
-
-            <section className="space-y-4">
-              <div className="rounded-[34px] bg-gradient-to-br from-[#075db5] via-[#0769bd] to-[#05356f] p-6 text-white shadow-[0_18px_60px_rgba(7,93,181,0.24)]">
-                <p className="text-sm font-semibold text-white/70">Saldo total acumulado</p>
-                <h2 className="mt-2 text-5xl font-black">{dinero(saldoActual)}</h2>
-                <p className="mt-3 text-sm text-white/70">
-                  Plata real acumulada, incluyendo lo que sobró de meses anteriores.
-                </p>
-              </div>
-
-              <div className="rounded-[34px] border border-[#d6ebf7] bg-white p-6 shadow-[0_18px_60px_rgba(6,67,120,0.08)]">
-                <p className="text-sm font-semibold text-[#55708e]">Disponible para hoy según presupuesto</p>
-                <h2 className={disponibleHoy < 0 ? "mt-2 text-4xl font-black text-red-600" : "mt-2 text-4xl font-black text-[#07559d]"}>
-                  {dinero(disponibleHoy)}
-                </h2>
-
-                <p className="mt-2 text-sm text-[#55708e]">
-                  Hoy podías gastar <b>{dinero(permitidoHoy)}</b> · Gastaste hoy <b>{dinero(gastosHoy)}</b>.
-                </p>
-
-                <p className="mt-1 text-sm text-[#55708e]">
-                  Presupuesto: <b>{dinero(presupuestoMes)}</b> · Gastado antes de hoy:{" "}
-                  <b>{dinero(gastosAntesDeHoy)}</b> · Quedan <b>{diasRestantesIncluyendoHoy}</b> días contando hoy.
-                </p>
-
-                <Progress value={presupuestoMes ? (gastosMes / presupuestoMes) * 100 : 0} />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <Mini title="Arrastre del mes" value={dinero(saldoAntesMes)} />
-                <Mini title="Balance mes" value={dinero(balanceMes)} />
-                <Mini title="Saldo fin de mes" value={dinero(saldoFinalMes)} />
-              </div>
-            </section>
-          </section>
-        )}
-
-        {vista === "resumen" && (
-          <section className="space-y-5">
-            <div className="rounded-[28px] border border-[#d6ebf7] bg-white p-4 shadow-[0_12px_35px_rgba(6,67,120,0.06)]">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h2 className="text-2xl font-black">Resumen</h2>
-                  <p className="text-sm text-[#55708e]">Elegí el mes y año para analizar.</p>
+                  <Option
+                    active={
+                      form.tipo === "ingreso"
+                    }
+                    onClick={() =>
+                      setForm({
+                        ...form,
+                        tipo: "ingreso",
+                        categoria:
+                          categoriasIngreso[0],
+                      })
+                    }
+                  >
+                    Ingreso
+                  </Option>
                 </div>
+              </Field>
 
-                <div className="flex gap-2">
-                  <input className="control" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
-                  <input className="control w-28" type="number" value={anio} onChange={(e) => setAnio(e.target.value)} />
+              <Field
+                label={
+                  form.tipo === "gasto"
+                    ? "Categoría de gasto"
+                    : "Categoría de ingreso"
+                }
+              >
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {categoriasActuales.map((c) => (
+                    <Option
+                      key={c}
+                      active={
+                        form.categoria === c
+                      }
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          categoria: c,
+                        })
+                      }
+                    >
+                      {c}
+                    </Option>
+                  ))}
                 </div>
-              </div>
-            </div>
+              </Field>
 
-            <div className="grid gap-3 md:grid-cols-4">
-              <Big title="Ingresos mes" value={dinero(ingresosMes)} />
-              <Big title="Gastos mes" value={dinero(gastosMes)} />
-              <Big title="Resta presupuesto" value={dinero(restantePresupuesto)} />
-              <Big title="Saldo total" value={dinero(saldoActual)} dark />
-            </div>
+              <Field label="Monto">
+                <input
+                  className="input text-4xl font-black"
+                  type="number"
+                  step="0.01"
+                  placeholder="0,00"
+                  value={form.monto}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      monto: e.target.value,
+                    })
+                  }
+                />
+              </Field>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Panel title="Flujo financiero del mes">
-                <FlowChart inicial={saldoAntesMes} ingresos={ingresosMes} gastos={gastosMes} final={saldoFinalMes} />
-              </Panel>
+              <Field label="Detalle">
+                <input
+                  className="input"
+                  placeholder="Ej: supermercado..."
+                  value={form.detalle}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      detalle: e.target.value,
+                    })
+                  }
+                />
+              </Field>
 
-              <Panel title="Gastos por categoría">
-                <CategoryChart data={categoriasMes} limites={limites[mes] || {}} />
-              </Panel>
-            </div>
-
-            <div className="grid gap-5 xl:grid-cols-2">
-              <Panel title="Ingresos por categoría">
-                <CategoryChart data={ingresosPorCategoria} limites={{}} positive />
-              </Panel>
-
-              <Panel title="Gastos por día">
-                <DailyList data={diasMes} />
-              </Panel>
-            </div>
-
-            <Panel title="Evolución anual del saldo acumulado">
-              <LineBars data={evolucion} />
-            </Panel>
-          </section>
-        )}
-
-        {vista === "movimientos" && (
-          <Panel title="Movimientos del mes">
-            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <input className="control" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
-              <button onClick={exportarCSV} className="rounded-2xl bg-[#075db5] px-5 py-3 font-black text-white">
-                Descargar CSV
+              <button className="w-full rounded-2xl bg-gradient-to-r from-[#008bd2] to-[#075db5] py-4 font-black text-white">
+                Guardar movimiento
               </button>
-            </div>
-
-            <div className="space-y-3">
-              {movimientosMes.map((m) => (
-                <div key={m.id} className="rounded-3xl border border-[#d6ebf7] bg-white p-4">
-                  <div className="flex justify-between gap-4">
-                    <div>
-                      <p className="text-lg font-black">{m.detalle || m.categoria}</p>
-                      <p className="text-sm text-[#55708e]">{m.fecha} · {m.categoria} · {m.tipo}</p>
-                    </div>
-                    <p className={m.tipo === "gasto" ? "text-xl font-black text-red-600" : "text-xl font-black text-emerald-600"}>
-                      {m.tipo === "gasto" ? "-" : "+"}{dinero(m.monto)}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    <button onClick={() => editar(m)} className="rounded-2xl bg-[#edf7ff] py-3 font-black text-[#07559d]">Editar</button>
-                    <button onClick={() => borrar(m.id)} className="rounded-2xl bg-red-50 py-3 font-black text-red-600">Borrar</button>
-                  </div>
-                </div>
-              ))}
-
-              {!movimientosMes.length && <Empty>No hay movimientos este mes.</Empty>}
-            </div>
+            </form>
           </Panel>
-        )}
 
-        {vista === "plan" && (
-          <section className="space-y-5">
-            <Panel title="Presupuesto mensual">
-              <p className="mb-4 text-sm text-[#55708e]">
-                Define cuánto querés gastar este mes. El inicio calcula el disponible de hoy con este presupuesto.
+          <section className="space-y-4">
+            <div className="rounded-[34px] bg-gradient-to-br from-[#075db5] via-[#0769bd] to-[#05356f] p-6 text-white">
+              <p className="text-sm font-semibold text-white/70">
+                Saldo total acumulado
               </p>
 
-              <div className="mb-4 max-w-xs">
-                <input className="control w-full" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
-              </div>
+              <h2 className="mt-2 text-5xl font-black">
+                {dinero(saldoActual)}
+              </h2>
 
-              <input
-                className="input"
-                type="number"
-                step="0.01"
-                placeholder="Ej: 300"
-                value={presupuestoMes || ""}
-                onChange={(e) => guardarPresupuesto(Number(e.target.value))}
-              />
-
-              <div className="mt-4 grid gap-3 md:grid-cols-4">
-                <Mini title="Presupuesto" value={dinero(presupuestoMes)} />
-                <Mini title="Gastado mes" value={dinero(gastosMes)} />
-                <Mini title="Resta total" value={dinero(restantePresupuesto)} />
-                <Mini title="Permitido hoy" value={dinero(permitidoHoy)} />
-              </div>
-
-              <Progress value={presupuestoMes ? (gastosMes / presupuestoMes) * 100 : 0} />
-            </Panel>
-
-            <Panel title="Límites por categoría de gasto">
-              <div className="space-y-3">
-                {categoriasGasto.map((cat) => {
-                  const gastado = categoriasMes.find(([c]) => c === cat)?.[1] || 0;
-                  const limite = limites[mes]?.[cat] || 0;
-
-                  return (
-                    <div key={cat} className="rounded-3xl bg-[#f4fbff] p-4">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div>
-                          <b>{cat}</b>
-                          <p className="text-sm text-[#55708e]">Gastado {dinero(gastado)}</p>
-                        </div>
-                        <input className="control w-36" type="number" step="0.01" placeholder="Límite" value={limite || ""} onChange={(e) => guardarLimite(cat, Number(e.target.value))} />
-                      </div>
-                      <Progress value={limite ? (gastado / limite) * 100 : 0} />
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-          </section>
-        )}
-
-        {vista === "config" && (
-          <Panel title="Configuración">
-            <form className="grid gap-3 md:grid-cols-[180px_1fr_auto]" onSubmit={agregarCategoria}>
-              <select className="input" value={tipoNuevaCategoria} onChange={(e) => setTipoNuevaCategoria(e.target.value as Tipo)}>
-                <option value="gasto">Gasto</option>
-                <option value="ingreso">Ingreso</option>
-              </select>
-
-              <input className="input" placeholder="Nueva categoría" value={nuevaCategoria} onChange={(e) => setNuevaCategoria(e.target.value)} />
-              <button className="rounded-2xl bg-[#075db5] px-5 py-3 font-black text-white">Agregar</button>
-            </form>
-
-            <div className="mt-6 grid gap-5 md:grid-cols-2">
-              <div>
-                <h3 className="mb-3 font-black">Categorías de gasto</h3>
-                <div className="flex flex-wrap gap-2">
-                  {categoriasGasto.map((c) => (
-                    <span key={c} className="rounded-full bg-[#e9f7ff] px-4 py-2 text-sm font-black text-[#07559d]">{c}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-3 font-black">Categorías de ingreso</h3>
-                <div className="flex flex-wrap gap-2">
-                  {categoriasIngreso.map((c) => (
-                    <span key={c} className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-700">{c}</span>
-                  ))}
-                </div>
-              </div>
+              <p className="mt-3 text-sm text-white/70">
+                Plata real acumulada,
+                incluyendo lo que sobró de
+                meses anteriores.
+              </p>
             </div>
-          </Panel>
-        )}
+
+            <div className="rounded-[34px] border border-[#d6ebf7] bg-white p-6">
+              <p className="text-sm font-semibold text-[#55708e]">
+                Disponible para hoy según
+                presupuesto
+              </p>
+
+              <h2
+                className={
+                  disponibleHoy < 0
+                    ? "mt-2 text-4xl font-black text-red-600"
+                    : "mt-2 text-4xl font-black text-[#07559d]"
+                }
+              >
+                {dinero(disponibleHoy)}
+              </h2>
+
+              <p className="mt-2 text-sm text-[#55708e]">
+                Hoy podías gastar{" "}
+                <b>
+                  {dinero(permitidoHoy)}
+                </b>{" "}
+                · Gastaste hoy{" "}
+                <b>{dinero(gastosHoy)}</b>.
+              </p>
+
+              <p className="mt-1 text-sm text-[#55708e]">
+                Presupuesto:{" "}
+                <b>
+                  {dinero(presupuestoMes)}
+                </b>{" "}
+                · Gastado antes de hoy:{" "}
+                <b>
+                  {dinero(
+                    gastosAntesDeHoy
+                  )}
+                </b>
+              </p>
+
+              <Progress
+                value={
+                  presupuestoMes
+                    ? (gastosMes /
+                        presupuestoMes) *
+                      100
+                    : 0
+                }
+              />
+            </div>
+          </section>
+        </section>
       </div>
 
       <style jsx global>{`
-        .input, .control {
+        .input,
+        .control {
           border: 1px solid #cfe6f4;
           border-radius: 18px;
           background: white;
@@ -695,11 +546,6 @@ export default function GastosPage() {
         .input {
           width: 100%;
         }
-
-        .input:focus, .control:focus {
-          border-color: #008bd2;
-          box-shadow: 0 0 0 4px rgba(0, 139, 210, .12);
-        }
       `}</style>
     </main>
   );
@@ -710,224 +556,226 @@ function unicos(arr: string[]) {
 }
 
 function sumar(data: Movimiento[], tipo: Tipo) {
-  return data.filter((m) => m.tipo === tipo).reduce((a, b) => a + b.monto, 0);
+  return data
+    .filter((m) => m.tipo === tipo)
+    .reduce((a, b) => a + b.monto, 0);
 }
 
-function calcularSaldoHasta(data: Movimiento[], fechaLimite: string) {
+function calcularSaldoHasta(
+  data: Movimiento[],
+  fechaLimite: string
+) {
   return data
     .filter((m) => m.fecha < fechaLimite)
-    .reduce((acc, m) => acc + (m.tipo === "ingreso" ? m.monto : -m.monto), 0);
+    .reduce(
+      (acc, m) =>
+        acc +
+        (m.tipo === "ingreso"
+          ? m.monto
+          : -m.monto),
+      0
+    );
 }
 
-function calcularDiasRestantesIncluyendoHoy(mes: string) {
+function calcularDiasRestantesIncluyendoHoy(
+  mes: string
+) {
   const actual = hoyLocal().slice(0, 7);
-  const [y, m] = mes.split("-").map(Number);
-  const ultimo = new Date(y, m, 0).getDate();
+
+  const [y, m] = mes
+    .split("-")
+    .map(Number);
+
+  const ultimo = new Date(
+    y,
+    m,
+    0
+  ).getDate();
 
   if (mes < actual) return 0;
   if (mes > actual) return ultimo;
 
-  const dia = Number(hoyLocal().slice(8, 10));
-  return Math.max(ultimo - dia + 1, 1);
+  const dia = Number(
+    hoyLocal().slice(8, 10)
+  );
+
+  return Math.max(
+    ultimo - dia + 1,
+    1
+  );
 }
 
-function resumenCategorias(data: Movimiento[]) {
-  const map: Record<string, number> = {};
-  data.filter((m) => m.tipo === "gasto").forEach((m) => {
-    map[m.categoria] = (map[m.categoria] || 0) + m.monto;
-  });
-  return Object.entries(map).sort((a, b) => b[1] - a[1]);
-}
+function resumenCategorias(
+  data: Movimiento[]
+) {
+  const map: Record<string, number> =
+    {};
 
-function resumenCategoriasTipo(data: Movimiento[], tipo: Tipo) {
-  const map: Record<string, number> = {};
-  data.filter((m) => m.tipo === tipo).forEach((m) => {
-    map[m.categoria] = (map[m.categoria] || 0) + m.monto;
-  });
-  return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  data
+    .filter((m) => m.tipo === "gasto")
+    .forEach((m) => {
+      map[m.categoria] =
+        (map[m.categoria] || 0) +
+        m.monto;
+    });
+
+  return Object.entries(map).sort(
+    (a, b) => b[1] - a[1]
+  );
 }
 
 function resumenDias(data: Movimiento[]) {
-  const map: Record<string, number> = {};
-  data.filter((m) => m.tipo === "gasto").forEach((m) => {
-    map[m.fecha] = (map[m.fecha] || 0) + m.monto;
-  });
-  return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]));
+  const map: Record<string, number> =
+    {};
+
+  data
+    .filter((m) => m.tipo === "gasto")
+    .forEach((m) => {
+      map[m.fecha] =
+        (map[m.fecha] || 0) +
+        m.monto;
+    });
+
+  return Object.entries(map).sort(
+    (a, b) => b[0].localeCompare(a[0])
+  );
 }
 
-function resumenMeses(data: Movimiento[], anio: string) {
-  return Array.from({ length: 12 }, (_, i) => {
-    const mes = `${anio}-${String(i + 1).padStart(2, "0")}`;
-    const movs = data.filter((m) => m.fecha.startsWith(mes));
-    const ingresos = sumar(movs, "ingreso");
-    const gastos = sumar(movs, "gasto");
-    const saldoInicial = calcularSaldoHasta(data, mes + "-01");
-    return { mes, ingresos, gastos, saldoFinal: saldoInicial + ingresos - gastos };
-  });
-}
-
-function evolucionSaldo(data: Movimiento[], anio: string) {
-  return resumenMeses(data, anio).map((m) => ({
-    label: m.mes.slice(5),
-    value: m.saldoFinal,
-  }));
-}
-
-function Nav({ activo, children, onClick }: { activo: boolean; children: React.ReactNode; onClick: () => void }) {
+function Nav({
+  activo,
+  children,
+  onClick,
+}: {
+  activo: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
   return (
-    <button onClick={onClick} className={activo ? "flex-1 rounded-2xl bg-gradient-to-r from-[#008bd2] to-[#075db5] px-4 py-3 font-black text-white shadow-[0_10px_25px_rgba(0,139,210,0.20)]" : "flex-1 rounded-2xl px-4 py-3 font-black text-[#5a7190]"}>
+    <button
+      onClick={onClick}
+      className={
+        activo
+          ? "flex-1 rounded-2xl bg-gradient-to-r from-[#008bd2] to-[#075db5] px-4 py-3 font-black text-white"
+          : "flex-1 rounded-2xl px-4 py-3 font-black text-[#5a7190]"
+      }
+    >
       {children}
     </button>
   );
 }
 
-function Drop({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} className="w-full rounded-2xl px-4 py-3 text-left font-black text-[#08244a] hover:bg-[#f4fbff]">{children}</button>;
+function Drop({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full rounded-2xl px-4 py-3 text-left font-black text-[#08244a] hover:bg-[#f4fbff]"
+    >
+      {children}
+    </button>
+  );
 }
 
-function Panel({ title, children }: { title?: string; children: React.ReactNode }) {
+function Panel({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <section className="rounded-[34px] border border-[#d6ebf7] bg-white p-5 shadow-[0_18px_60px_rgba(6,67,120,0.08)]">
-      {title && <h2 className="mb-4 text-2xl font-black text-[#08244a]">{title}</h2>}
       {children}
     </section>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <p className="mb-2 text-sm font-black text-[#355577]">{label}</p>
+      <p className="mb-2 text-sm font-black text-[#355577]">
+        {label}
+      </p>
       {children}
     </div>
   );
 }
 
-function Option({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+function Option({
+  active,
+  children,
+  onClick,
+}: {
+  active: boolean;
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
   return (
-    <button type="button" onClick={onClick} className={active ? "rounded-2xl bg-gradient-to-r from-[#008bd2] to-[#075db5] px-4 py-3 font-black text-white shadow-[0_8px_20px_rgba(0,139,210,0.18)]" : "rounded-2xl border border-[#d6ebf7] bg-[#f7fbff] px-4 py-3 font-black text-[#08244a]"}>
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? "rounded-2xl bg-gradient-to-r from-[#008bd2] to-[#075db5] px-4 py-3 font-black text-white"
+          : "rounded-2xl border border-[#d6ebf7] bg-[#f7fbff] px-4 py-3 font-black text-[#08244a]"
+      }
+    >
       {children}
     </button>
   );
 }
 
-function Mini({ title, value }: { title: string; value: string }) {
+function Mini({
+  title,
+  value,
+}: {
+  title: string;
+  value: string;
+}) {
   return (
-    <div className="rounded-[26px] border border-[#d6ebf7] bg-white p-4 shadow-[0_12px_35px_rgba(6,67,120,0.06)]">
-      <p className="text-sm font-semibold text-[#55708e]">{title}</p>
-      <p className="mt-1 text-xl font-black text-[#08244a]">{value}</p>
+    <div className="rounded-[26px] border border-[#d6ebf7] bg-white p-4">
+      <p className="text-sm font-semibold text-[#55708e]">
+        {title}
+      </p>
+
+      <p className="mt-1 text-xl font-black text-[#08244a]">
+        {value}
+      </p>
     </div>
   );
 }
 
-function Big({ title, value, dark }: { title: string; value: string; dark?: boolean }) {
-  return (
-    <div className={dark ? "rounded-[30px] bg-gradient-to-br from-[#075db5] to-[#05356f] p-5 text-white shadow-[0_18px_50px_rgba(7,93,181,0.18)]" : "rounded-[30px] border border-[#d6ebf7] bg-white p-5 shadow-[0_18px_50px_rgba(6,67,120,0.07)]"}>
-      <p className={dark ? "text-sm font-semibold text-white/70" : "text-sm font-semibold text-[#55708e]"}>{title}</p>
-      <p className="mt-2 text-2xl font-black">{value}</p>
-    </div>
+function Progress({
+  value,
+}: {
+  value: number;
+}) {
+  const v = Math.min(
+    Math.max(value, 0),
+    100
   );
-}
 
-function Progress({ value }: { value: number }) {
-  const v = Math.min(Math.max(value, 0), 100);
   return (
     <div className="mt-3 h-3 overflow-hidden rounded-full bg-[#dcecf6]">
-      <div className={value > 100 ? "h-full rounded-full bg-red-500" : "h-full rounded-full bg-gradient-to-r from-[#00aeea] to-[#075db5]"} style={{ width: `${v}%` }} />
+      <div
+        className={
+          value > 100
+            ? "h-full rounded-full bg-red-500"
+            : "h-full rounded-full bg-gradient-to-r from-[#00aeea] to-[#075db5]"
+        }
+        style={{
+          width: `${v}%`,
+        }}
+      />
     </div>
   );
-}
-
-function FlowChart({ inicial, ingresos, gastos, final }: { inicial: number; ingresos: number; gastos: number; final: number }) {
-  const items = [
-    ["Saldo inicial", inicial],
-    ["Ingresos", ingresos],
-    ["Gastos", -gastos],
-    ["Saldo final", final],
-  ] as const;
-
-  const max = Math.max(...items.map((i) => Math.abs(i[1])), 1);
-
-  return (
-    <div className="space-y-4">
-      {items.map(([label, value]) => (
-        <div key={label}>
-          <div className="mb-1 flex justify-between text-sm">
-            <b>{label}</b>
-            <b>{dinero(value)}</b>
-          </div>
-          <div className="h-4 overflow-hidden rounded-full bg-[#e8f4fb]">
-            <div className={value < 0 ? "h-full rounded-full bg-red-500" : "h-full rounded-full bg-gradient-to-r from-[#00aeea] to-[#075db5]"} style={{ width: `${Math.abs(value) / max * 100}%` }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CategoryChart({ data, limites, positive }: { data: [string, number][]; limites: Record<string, number>; positive?: boolean }) {
-  if (!data.length) return <Empty>Sin datos este mes.</Empty>;
-  const max = Math.max(...data.map((x) => x[1]), 1);
-
-  return (
-    <div className="space-y-3">
-      {data.map(([cat, total]) => {
-        const limite = limites[cat] || 0;
-        const value = limite ? (total / limite) * 100 : (total / max) * 100;
-
-        return (
-          <div key={cat} className="rounded-2xl bg-[#f4fbff] p-4">
-            <div className="flex justify-between">
-              <div>
-                <b>{cat}</b>
-                {limite > 0 && <p className="text-xs text-[#55708e]">Límite {dinero(limite)}</p>}
-              </div>
-              <b className={positive ? "text-emerald-600" : ""}>{dinero(total)}</b>
-            </div>
-            <Progress value={value} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function DailyList({ data }: { data: [string, number][] }) {
-  if (!data.length) return <Empty>Sin gastos diarios.</Empty>;
-
-  return (
-    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-      {data.map(([fecha, total]) => (
-        <div key={fecha} className="rounded-2xl bg-[#f4fbff] p-4">
-          <p className="text-sm font-semibold text-[#55708e]">{fecha}</p>
-          <p className="mt-1 text-xl font-black">{dinero(total)}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function LineBars({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map((d) => Math.abs(d.value)), 1);
-
-  return (
-    <div className="flex h-72 items-end gap-2 rounded-3xl bg-[#f4fbff] p-4">
-      {data.map((d) => (
-        <div key={d.label} className="flex flex-1 flex-col items-center gap-2">
-          <div className="flex h-56 w-full items-end justify-center">
-            <div
-              title={`${d.label}: ${dinero(d.value)}`}
-              className={d.value < 0 ? "w-full rounded-t-xl bg-red-500" : "w-full rounded-t-xl bg-gradient-to-t from-[#075db5] to-[#00aeea]"}
-              style={{ height: `${Math.max(Math.abs(d.value) / max * 100, 3)}%` }}
-            />
-          </div>
-          <span className="text-xs font-bold text-[#55708e]">{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return <p className="rounded-2xl bg-[#f4fbff] p-5 text-center text-[#55708e]">{children}</p>;
 }
