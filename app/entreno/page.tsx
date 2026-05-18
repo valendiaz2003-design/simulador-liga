@@ -157,17 +157,17 @@ export default function EntrenoPage() {
       const icon = document.createElement("link");
       icon.rel = "icon";
       icon.type = "image/png";
-      icon.href = "/images/entreno-logo.png?v=trainc7";
+      icon.href = "/images/entreno-logo.png?v=trainc9";
       document.head.appendChild(icon);
 
       const shortcut = document.createElement("link");
       shortcut.rel = "shortcut icon";
-      shortcut.href = "/images/entreno-logo.png?v=trainc7";
+      shortcut.href = "/images/entreno-logo.png?v=trainc9";
       document.head.appendChild(shortcut);
 
       const apple = document.createElement("link");
       apple.rel = "apple-touch-icon";
-      apple.href = "/images/entreno-logo.png?v=trainc7";
+      apple.href = "/images/entreno-logo.png?v=trainc9";
       document.head.appendChild(apple);
     };
 
@@ -408,6 +408,24 @@ export default function EntrenoPage() {
     });
 
     setEstado(error ? "Error online" : "Sincronizado");
+    if (error) alert(error.message);
+  }
+
+  async function actualizarEjercicio(updated: RoutineExercise) {
+    setRoutineExercises(
+      routineExercises.map((x) => (x.id === updated.id ? updated : x))
+    );
+
+    const { error } = await supabase.from("workout_routine_exercises").upsert({
+      id: updated.id,
+      routine_id: updated.routine_id,
+      nombre: updated.nombre,
+      unidad: updated.unidad,
+      tipo: updated.tipo,
+      series: updated.series,
+      orden: updated.orden,
+    });
+
     if (error) alert(error.message);
   }
 
@@ -717,7 +735,7 @@ export default function EntrenoPage() {
           </div>
         </header>
 
-        <nav className="sticky top-3 z-30 mb-5 flex gap-2 rounded-[24px] border border-[#d8f0e5] bg-white/90 p-2 shadow-[0_14px_45px_rgba(11,48,36,0.08)]">
+        <nav className="sticky top-3 z-30 mb-5 flex gap-2 rounded-[24px] border border-[#d8f0e5] bg-white/90 p-2 shadow-[0_14px_45px_rgba(11,48,36,0.08)] overflow-x-auto">
           <Nav activo={vista === "inicio"} onClick={() => setVista("inicio")}>Inicio</Nav>
           <Nav activo={vista === "rutinas"} onClick={() => setVista("rutinas")}>Rutinas</Nav>
           <Nav activo={vista === "resumen"} onClick={() => setVista("resumen")}>Resumen</Nav>
@@ -985,14 +1003,48 @@ export default function EntrenoPage() {
 
                   <div className="space-y-2">
                     {routineExercises.filter((e) => e.routine_id === r.id).map((e) => (
-                      <div key={e.id} className="flex items-center justify-between rounded-2xl bg-[#f4fbf7] p-3">
-                        <div>
-                          <b>{e.nombre}</b>
-                          <p className="text-sm text-[#5f7f70]">{e.series} series · {e.tipo} · {e.unidad}</p>
+                      <div key={e.id} className="rounded-2xl bg-[#f4fbf7] p-4">
+                        <div className="grid gap-3 md:grid-cols-[1fr_100px_120px_120px_auto]">
+                          <input
+                            className="input"
+                            value={e.nombre}
+                            onChange={(ev) => actualizarEjercicio({ ...e, nombre: ev.target.value })}
+                          />
+
+                          <input
+                            className="input"
+                            type="number"
+                            min="1"
+                            value={e.series}
+                            onChange={(ev) => actualizarEjercicio({ ...e, series: Number(ev.target.value) || 1 })}
+                          />
+
+                          <select
+                            className="input"
+                            value={e.unidad}
+                            onChange={(ev) => actualizarEjercicio({ ...e, unidad: ev.target.value })}
+                          >
+                            <option value="reps">reps</option>
+                            <option value="km">km</option>
+                            <option value="min">min</option>
+                            <option value="kg">kg</option>
+                          </select>
+
+                          <select
+                            className="input"
+                            value={e.tipo}
+                            onChange={(ev) => actualizarEjercicio({ ...e, tipo: ev.target.value as Tipo })}
+                          >
+                            <option value="fuerza">fuerza</option>
+                            <option value="running">running</option>
+                            <option value="tiempo">tiempo</option>
+                            <option value="otro">otro</option>
+                          </select>
+
+                          <button onClick={() => borrarEjercicio(e.id)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-600">
+                            Borrar
+                          </button>
                         </div>
-                        <button onClick={() => borrarEjercicio(e.id)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-600">
-                          Borrar
-                        </button>
                       </div>
                     ))}
                     {!routineExercises.filter((e) => e.routine_id === r.id).length && <Empty>Sin ejercicios.</Empty>}
