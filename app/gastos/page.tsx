@@ -61,13 +61,13 @@ function hoyLocal() {
   return d.toISOString().slice(0, 10);
 }
 
-function fechaBonita(fechaISO = hoyLocal()) {
-  const [, mes, dia] = fechaISO.split("-").map(Number);
-  return `${dia} de ${capitalizar(meses[mes - 1])}`;
-}
-
 function capitalizar(txt: string) {
   return txt.charAt(0).toUpperCase() + txt.slice(1);
+}
+
+function fechaBonita(fechaISO = hoyLocal()) {
+  const [anio, mes, dia] = fechaISO.split("-").map(Number);
+  return `${dia} de ${capitalizar(meses[mes - 1])} ${anio}`;
 }
 
 const hoy = hoyLocal();
@@ -148,7 +148,9 @@ export default function GastosPage() {
 
     if (cats && cats.length > 0) {
       const nombres = cats.map((c) => c.name);
-      setCategoriasGasto(unicos([...categoriasGastoBase, ...nombres.filter((x) => !categoriasIngresoBase.includes(x))]));
+      setCategoriasGasto(
+        unicos([...categoriasGastoBase, ...nombres.filter((x) => !categoriasIngresoBase.includes(x))])
+      );
       setCategoriasIngreso(unicos([...categoriasIngresoBase]));
     }
 
@@ -391,13 +393,7 @@ export default function GastosPage() {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
               <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-[#e9f7ff]">
-                <Image
-                  src="/images/financ-logo.png"
-                  alt="FinanC+"
-                  fill
-                  className="object-contain p-1"
-                  priority
-                />
+                <Image src="/images/financ-logo.png" alt="FinanC+" fill className="object-contain p-1" priority />
               </div>
 
               <div>
@@ -413,12 +409,8 @@ export default function GastosPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="rounded-2xl border border-[#d7e9f5] bg-[#f7fbff] px-5 py-3 text-right">
-                <p className="font-black text-[#07559d]">{fechaBonita()}</p>
-                <p className="text-xs font-bold text-[#6f86a1]">{anio}</p>
-              </div>
-              <input className="control hidden md:block" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+            <div className="rounded-2xl border border-[#d7e9f5] bg-[#f7fbff] px-5 py-3 text-right">
+              <p className="font-black text-[#07559d]">{fechaBonita()}</p>
             </div>
           </div>
         </header>
@@ -498,8 +490,7 @@ export default function GastosPage() {
                 </h2>
 
                 <p className="mt-2 text-sm text-[#55708e]">
-                  Hoy podías gastar <b>{dinero(permitidoHoy)}</b> · Gastaste hoy{" "}
-                  <b>{dinero(gastosHoy)}</b>.
+                  Hoy podías gastar <b>{dinero(permitidoHoy)}</b> · Gastaste hoy <b>{dinero(gastosHoy)}</b>.
                 </p>
 
                 <p className="mt-1 text-sm text-[#55708e]">
@@ -521,6 +512,20 @@ export default function GastosPage() {
 
         {vista === "resumen" && (
           <section className="space-y-5">
+            <div className="rounded-[28px] border border-[#d6ebf7] bg-white p-4 shadow-[0_12px_35px_rgba(6,67,120,0.06)]">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-2xl font-black">Resumen</h2>
+                  <p className="text-sm text-[#55708e]">Elegí el mes y año para analizar.</p>
+                </div>
+
+                <div className="flex gap-2">
+                  <input className="control" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+                  <input className="control w-28" type="number" value={anio} onChange={(e) => setAnio(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-3 md:grid-cols-4">
               <Big title="Ingresos mes" value={dinero(ingresosMes)} />
               <Big title="Gastos mes" value={dinero(gastosMes)} />
@@ -551,37 +556,17 @@ export default function GastosPage() {
             <Panel title="Evolución anual del saldo acumulado">
               <LineBars data={evolucion} />
             </Panel>
-
-            <Panel title="Resumen anual">
-              <div className="mb-4 grid gap-3 md:grid-cols-3">
-                <Mini title="Ingresos año" value={dinero(ingresosAnio)} />
-                <Mini title="Gastos año" value={dinero(gastosAnio)} />
-                <Mini title="Balance año" value={dinero(balanceAnio)} />
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {mesesDelAnio.map((m) => (
-                  <div key={m.mes} className="rounded-3xl bg-[#f4fbff] p-4">
-                    <div className="flex justify-between">
-                      <b>{m.mes}</b>
-                      <b>{dinero(m.saldoFinal)}</b>
-                    </div>
-                    <p className="mt-2 text-sm text-[#55708e]">
-                      Ingresos {dinero(m.ingresos)} · Gastos {dinero(m.gastos)}
-                    </p>
-                    <Progress value={(m.gastos / Math.max(...mesesDelAnio.map((x) => x.gastos), 1)) * 100} />
-                  </div>
-                ))}
-              </div>
-            </Panel>
           </section>
         )}
 
         {vista === "movimientos" && (
           <Panel title="Movimientos del mes">
-            <button onClick={exportarCSV} className="mb-4 rounded-2xl bg-[#075db5] px-5 py-3 font-black text-white">
-              Descargar CSV
-            </button>
+            <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <input className="control" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+              <button onClick={exportarCSV} className="rounded-2xl bg-[#075db5] px-5 py-3 font-black text-white">
+                Descargar CSV
+              </button>
+            </div>
 
             <div className="space-y-3">
               {movimientosMes.map((m) => (
@@ -615,6 +600,10 @@ export default function GastosPage() {
                 Define cuánto querés gastar este mes. El inicio calcula el disponible de hoy con este presupuesto.
               </p>
 
+              <div className="mb-4 max-w-xs">
+                <input className="control w-full" type="month" value={mes} onChange={(e) => setMes(e.target.value)} />
+              </div>
+
               <input
                 className="input"
                 type="number"
@@ -647,14 +636,7 @@ export default function GastosPage() {
                           <b>{cat}</b>
                           <p className="text-sm text-[#55708e]">Gastado {dinero(gastado)}</p>
                         </div>
-                        <input
-                          className="control w-36"
-                          type="number"
-                          step="0.01"
-                          placeholder="Límite"
-                          value={limite || ""}
-                          onChange={(e) => guardarLimite(cat, Number(e.target.value))}
-                        />
+                        <input className="control w-36" type="number" step="0.01" placeholder="Límite" value={limite || ""} onChange={(e) => guardarLimite(cat, Number(e.target.value))} />
                       </div>
                       <Progress value={limite ? (gastado / limite) * 100 : 0} />
                     </div>
@@ -668,11 +650,7 @@ export default function GastosPage() {
         {vista === "config" && (
           <Panel title="Configuración">
             <form className="grid gap-3 md:grid-cols-[180px_1fr_auto]" onSubmit={agregarCategoria}>
-              <select
-                className="input"
-                value={tipoNuevaCategoria}
-                onChange={(e) => setTipoNuevaCategoria(e.target.value as Tipo)}
-              >
+              <select className="input" value={tipoNuevaCategoria} onChange={(e) => setTipoNuevaCategoria(e.target.value as Tipo)}>
                 <option value="gasto">Gasto</option>
                 <option value="ingreso">Ingreso</option>
               </select>
