@@ -3,9 +3,9 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "FinanC+",
   icons: {
-    icon: "/images/financ-logo.png",
-    shortcut: "/images/financ-logo.png",
-    apple: "/images/financ-logo.png",
+    icon: "/images/financ-logo.png?v=financ2",
+    shortcut: "/images/financ-logo.png?v=financ2",
+    apple: "/images/financ-logo.png?v=financ2",
   },
 };
 

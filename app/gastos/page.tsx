@@ -108,22 +108,38 @@ export default function GastosPage() {
   });
 
   useEffect(() => {
+  const applyBranding = () => {
     document.title = "FinanC+";
 
-    const existingIcons = document.querySelectorAll(
-      "link[rel*='icon']"
-    );
-
-    existingIcons.forEach((i) => i.remove());
+    document
+      .querySelectorAll(
+        "link[rel='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']"
+      )
+      .forEach((el) => el.remove());
 
     const icon = document.createElement("link");
     icon.rel = "icon";
     icon.type = "image/png";
-    icon.href = "/images/financ-logo.png";
+    icon.href = "/images/financ-logo.png?v=financ2";
     document.head.appendChild(icon);
 
-    cargarDatos();
-  }, []);
+    const shortcut = document.createElement("link");
+    shortcut.rel = "shortcut icon";
+    shortcut.href = "/images/financ-logo.png?v=financ2";
+    document.head.appendChild(shortcut);
+
+    const apple = document.createElement("link");
+    apple.rel = "apple-touch-icon";
+    apple.href = "/images/financ-logo.png?v=financ2";
+    document.head.appendChild(apple);
+  };
+
+  applyBranding();
+
+  const interval = setInterval(applyBranding, 1000);
+
+  return () => clearInterval(interval);
+}, []);
 
   async function cargarDatos() {
     const { data: movs } = await supabase
