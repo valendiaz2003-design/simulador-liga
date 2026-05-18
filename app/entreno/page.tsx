@@ -17,20 +17,6 @@ type Entry = {
   nota: string;
 };
 
-type Goal = {
-  id: string;
-  ejercicio: string;
-  objetivo: number;
-  unidad: string;
-  nota: string;
-};
-
-type Completion = {
-  id: string;
-  fecha: string;
-  routine: string;
-};
-
 type Routine = {
   id: string;
   name: string;
@@ -45,6 +31,7 @@ type RoutineExercise = {
   nombre: string;
   unidad: string;
   tipo: Tipo;
+  series: number;
   orden: number;
 };
 
@@ -54,12 +41,25 @@ type ScheduleItem = {
   routine_id: string;
 };
 
+type Completion = {
+  id: string;
+  fecha: string;
+  routine: string;
+};
+
+type Goal = {
+  id: string;
+  ejercicio: string;
+  objetivo: number;
+  unidad: string;
+  nota: string;
+};
+
 const colores = [
   "from-emerald-500 to-green-700",
   "from-lime-500 to-emerald-700",
   "from-teal-500 to-green-800",
   "from-cyan-500 to-emerald-700",
-  "from-green-400 to-emerald-800",
 ];
 
 const meses = [
@@ -97,11 +97,12 @@ export default function EntrenoPage() {
   const [estado, setEstado] = useState("Sincronizando...");
 
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [goals, setGoals] = useState<Goal[]>([]);
-  const [completions, setCompletions] = useState<Completion[]>([]);
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [routineExercises, setRoutineExercises] = useState<RoutineExercise[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
+  const [completions, setCompletions] = useState<Completion[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [monthlyTargets, setMonthlyTargets] = useState<Record<string, number>>({});
 
   const [mes, setMes] = useState(mesActual);
   const [fechaSeleccionada, setFechaSeleccionada] = useState(hoy);
@@ -115,11 +116,16 @@ export default function EntrenoPage() {
     days_per_week: "1",
   });
 
+  const [editRoutine, setEditRoutine] = useState<
+    Record<string, { name: string; days_per_week: string }>
+  >({});
+
   const [nuevoEjercicio, setNuevoEjercicio] = useState({
     routine_id: "",
     nombre: "",
     unidad: "reps",
     tipo: "fuerza" as Tipo,
+    series: "1",
   });
 
   const [form, setForm] = useState({
@@ -151,23 +157,22 @@ export default function EntrenoPage() {
       const icon = document.createElement("link");
       icon.rel = "icon";
       icon.type = "image/png";
-      icon.href = "/images/entreno-logo.png?v=trainc5";
+      icon.href = "/images/entreno-logo.png?v=trainc7";
       document.head.appendChild(icon);
 
       const shortcut = document.createElement("link");
       shortcut.rel = "shortcut icon";
-      shortcut.href = "/images/entreno-logo.png?v=trainc5";
+      shortcut.href = "/images/entreno-logo.png?v=trainc7";
       document.head.appendChild(shortcut);
 
       const apple = document.createElement("link");
       apple.rel = "apple-touch-icon";
-      apple.href = "/images/entreno-logo.png?v=trainc5";
+      apple.href = "/images/entreno-logo.png?v=trainc7";
       document.head.appendChild(apple);
     };
 
     applyBranding();
     const interval = setInterval(applyBranding, 1000);
-
     cargarDatos();
 
     return () => clearInterval(interval);
@@ -178,16 +183,6 @@ export default function EntrenoPage() {
 
     const { data: e } = await supabase
       .from("workout_entries")
-      .select("*")
-      .order("fecha", { ascending: false });
-
-    const { data: g } = await supabase
-      .from("workout_goals")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    const { data: c } = await supabase
-      .from("workout_routine_completions")
       .select("*")
       .order("fecha", { ascending: false });
 
@@ -206,6 +201,20 @@ export default function EntrenoPage() {
       .select("*")
       .order("fecha", { ascending: true });
 
+    const { data: c } = await supabase
+      .from("workout_routine_completions")
+      .select("*")
+      .order("fecha", { ascending: false });
+
+    const { data: g } = await supabase
+      .from("workout_goals")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    const { data: mt } = await supabase
+      .from("workout_monthly_targets")
+      .select("*");
+
     if (e) {
       setEntries(
         e.map((x) => ({
@@ -216,6 +225,61 @@ export default function EntrenoPage() {
           valor: Number(x.valor),
           unidad: x.unidad,
           nota: x.nota || "",
+        }))
+      );
+    }
+
+    if (r) {
+      const mapped = r.map((x) => ({
+        id: x.id,
+        name: x.name,
+        days_per_week: Number(x.days_per_week),
+        color: x.color || colores[0],
+        active: x.active ?? true,
+      }));
+
+      setRoutines(mapped);
+
+      const editMap: Record<string, { name: string; days_per_week: string }> = {};
+      mapped.forEach((item) => {
+        editMap[item.id] = {
+          name: item.name,
+          days_per_week: String(item.days_per_week),
+        };
+      });
+      setEditRoutine(editMap);
+    }
+
+    if (ex) {
+      setRoutineExercises(
+        ex.map((x) => ({
+          id: x.id,
+          routine_id: x.routine_id,
+          nombre: x.nombre,
+          unidad: x.unidad,
+          tipo: x.tipo,
+          series: Number(x.series || 1),
+          orden: Number(x.orden || 0),
+        }))
+      );
+    }
+
+    if (s) {
+      setSchedule(
+        s.map((x) => ({
+          id: x.id,
+          fecha: x.fecha,
+          routine_id: x.routine_id,
+        }))
+      );
+    }
+
+    if (c) {
+      setCompletions(
+        c.map((x) => ({
+          id: x.id,
+          fecha: x.fecha,
+          routine: x.routine,
         }))
       );
     }
@@ -232,49 +296,12 @@ export default function EntrenoPage() {
       );
     }
 
-    if (c) {
-      setCompletions(
-        c.map((x) => ({
-          id: x.id,
-          fecha: x.fecha,
-          routine: x.routine,
-        }))
-      );
-    }
-
-    if (r) {
-      setRoutines(
-        r.map((x) => ({
-          id: x.id,
-          name: x.name,
-          days_per_week: Number(x.days_per_week),
-          color: x.color || colores[0],
-          active: x.active ?? true,
-        }))
-      );
-    }
-
-    if (ex) {
-      setRoutineExercises(
-        ex.map((x) => ({
-          id: x.id,
-          routine_id: x.routine_id,
-          nombre: x.nombre,
-          unidad: x.unidad,
-          tipo: x.tipo,
-          orden: Number(x.orden || 0),
-        }))
-      );
-    }
-
-    if (s) {
-      setSchedule(
-        s.map((x) => ({
-          id: x.id,
-          fecha: x.fecha,
-          routine_id: x.routine_id,
-        }))
-      );
+    if (mt) {
+      const map: Record<string, number> = {};
+      mt.forEach((x) => {
+        map[x.month] = Number(x.target);
+      });
+      setMonthlyTargets(map);
     }
 
     setEstado("Sincronizado");
@@ -310,10 +337,9 @@ export default function EntrenoPage() {
 
   const completionsMes = completions.filter((c) => c.fecha.startsWith(mes));
   const rutinasCompletadasMes = completionsMes.length;
-  const rutinasObjetivoMes = routines.reduce(
-    (acc, r) => acc + r.days_per_week * semanasDelMes(mes),
-    0
-  );
+  const rutinasObjetivoMes = monthlyTargets[mes] || 0;
+  const porcentajeRutinasMes =
+    rutinasObjetivoMes > 0 ? (rutinasCompletadasMes / rutinasObjetivoMes) * 100 : 0;
 
   const completadasSemana = routines.map((r) => ({
     routine: r,
@@ -337,6 +363,14 @@ export default function EntrenoPage() {
     };
 
     setRoutines([...routines, nueva]);
+    setEditRoutine({
+      ...editRoutine,
+      [nueva.id]: {
+        name: nueva.name,
+        days_per_week: String(nueva.days_per_week),
+      },
+    });
+
     setNuevaRutina({ name: "", days_per_week: "1" });
     setEstado("Guardando...");
 
@@ -346,6 +380,48 @@ export default function EntrenoPage() {
       days_per_week: nueva.days_per_week,
       color: nueva.color,
       active: nueva.active,
+    });
+
+    setEstado(error ? "Error online" : "Sincronizado");
+    if (error) alert(error.message);
+  }
+
+  async function actualizarRutina(routine: Routine) {
+    const data = editRoutine[routine.id];
+    if (!data?.name.trim()) return;
+
+    const updated: Routine = {
+      ...routine,
+      name: data.name.trim(),
+      days_per_week: Number(data.days_per_week) || 1,
+    };
+
+    setRoutines(routines.map((r) => (r.id === routine.id ? updated : r)));
+    setEstado("Guardando...");
+
+    const { error } = await supabase.from("workout_routines").upsert({
+      id: updated.id,
+      name: updated.name,
+      days_per_week: updated.days_per_week,
+      color: updated.color,
+      active: updated.active,
+    });
+
+    setEstado(error ? "Error online" : "Sincronizado");
+    if (error) alert(error.message);
+  }
+
+  async function guardarObjetivoMensual(target: number) {
+    setMonthlyTargets({
+      ...monthlyTargets,
+      [mes]: target,
+    });
+
+    setEstado("Guardando...");
+
+    const { error } = await supabase.from("workout_monthly_targets").upsert({
+      month: mes,
+      target,
     });
 
     setEstado(error ? "Error online" : "Sincronizado");
@@ -367,11 +443,12 @@ export default function EntrenoPage() {
       nombre: nuevoEjercicio.nombre.trim(),
       unidad: nuevoEjercicio.unidad,
       tipo: nuevoEjercicio.tipo,
+      series: Number(nuevoEjercicio.series) || 1,
       orden: cantidad + 1,
     };
 
     setRoutineExercises([...routineExercises, nuevo]);
-    setNuevoEjercicio({ ...nuevoEjercicio, nombre: "" });
+    setNuevoEjercicio({ ...nuevoEjercicio, nombre: "", series: "1" });
     setEstado("Guardando...");
 
     const { error } = await supabase.from("workout_routine_exercises").upsert(nuevo);
@@ -475,8 +552,9 @@ export default function EntrenoPage() {
     setEstado("Sincronizado");
   }
 
-  async function guardarRapido(ej: RoutineExercise) {
-    const raw = quickValues[ej.id];
+  async function guardarSerie(ej: RoutineExercise, serie: number) {
+    const key = `${ej.id}-${serie}`;
+    const raw = quickValues[key];
     if (!raw || Number(raw) <= 0) return;
 
     await guardarEntry({
@@ -485,11 +563,11 @@ export default function EntrenoPage() {
       ejercicio: ej.nombre,
       valor: Number(raw),
       unidad: ej.unidad,
-      nota: quickNotes[ej.id] || "",
+      nota: `Serie ${serie}${quickNotes[key] ? ` · ${quickNotes[key]}` : ""}`,
     });
 
-    setQuickValues({ ...quickValues, [ej.id]: "" });
-    setQuickNotes({ ...quickNotes, [ej.id]: "" });
+    setQuickValues({ ...quickValues, [key]: "" });
+    setQuickNotes({ ...quickNotes, [key]: "" });
   }
 
   async function guardarManual(e: React.FormEvent) {
@@ -603,7 +681,11 @@ export default function EntrenoPage() {
   function exportarBackup() {
     descargar(
       `trainc-backup-${hoyLocal()}.json`,
-      JSON.stringify({ entries, goals, completions, routines, routineExercises, schedule }, null, 2),
+      JSON.stringify(
+        { entries, goals, completions, routines, routineExercises, schedule, monthlyTargets },
+        null,
+        2
+      ),
       "application/json"
     );
   }
@@ -715,43 +797,63 @@ export default function EntrenoPage() {
             {rutinaActiva && (
               <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
                 <Panel title={`${rutinaActiva.name} · ${fechaBonita(fechaSeleccionada)}`}>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {ejerciciosRutina.map((ej) => {
                       const ultima = ultimaMarca(ordenados, ej.nombre, ej.unidad);
-                      const delDia = ordenados.filter((e) => e.fecha === fechaSeleccionada && e.ejercicio === ej.nombre);
+                      const delDia = ordenados.filter(
+                        (e) => e.fecha === fechaSeleccionada && e.ejercicio === ej.nombre
+                      );
 
                       return (
                         <div key={ej.id} className="rounded-3xl border border-[#d8f0e5] bg-[#f6fffa] p-4">
-                          <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                            <div>
-                              <h3 className="text-xl font-black">{ej.nombre}</h3>
-                              <p className="text-sm text-[#5f7f70]">
-                                Última marca: <b>{ultima ? `${ultima.valor} ${ultima.unidad} (${ultima.fecha})` : "sin datos"}</b>
-                              </p>
-                              <p className="text-sm text-[#5f7f70]">
-                                Ese día: <b>{delDia.length ? delDia.map((x) => `${x.valor} ${x.unidad}`).join(" · ") : "nada todavía"}</b>
-                              </p>
-                            </div>
+                          <div className="mb-3">
+                            <h3 className="text-xl font-black">{ej.nombre}</h3>
+                            <p className="text-sm text-[#5f7f70]">
+                              {ej.series} series · Última marca:{" "}
+                              <b>{ultima ? `${ultima.valor} ${ultima.unidad} (${ultima.fecha})` : "sin datos"}</b>
+                            </p>
+                            <p className="text-sm text-[#5f7f70]">
+                              Cargado ese día:{" "}
+                              <b>{delDia.length ? delDia.map((x) => `${x.nota}: ${x.valor} ${x.unidad}`).join(" · ") : "nada todavía"}</b>
+                            </p>
+                          </div>
 
-                            <div className="grid gap-2 md:grid-cols-[120px_1fr_auto]">
-                              <input
-                                className="input"
-                                type="number"
-                                step="0.01"
-                                placeholder={ej.unidad}
-                                value={quickValues[ej.id] || ""}
-                                onChange={(e) => setQuickValues({ ...quickValues, [ej.id]: e.target.value })}
-                              />
-                              <input
-                                className="input"
-                                placeholder="nota"
-                                value={quickNotes[ej.id] || ""}
-                                onChange={(e) => setQuickNotes({ ...quickNotes, [ej.id]: e.target.value })}
-                              />
-                              <button onClick={() => guardarRapido(ej)} className="btn-primary">
-                                Guardar
-                              </button>
-                            </div>
+                          <div className="space-y-2">
+                            {Array.from({ length: Math.max(ej.series, 1) }, (_, i) => i + 1).map((serie) => {
+                              const key = `${ej.id}-${serie}`;
+
+                              return (
+                                <div key={key} className="grid gap-2 md:grid-cols-[90px_130px_1fr_auto]">
+                                  <div className="rounded-2xl bg-white px-4 py-3 font-black text-[#0f7a4f]">
+                                    Serie {serie}
+                                  </div>
+
+                                  <input
+                                    className="input"
+                                    type="number"
+                                    step="0.01"
+                                    placeholder={ej.unidad}
+                                    value={quickValues[key] || ""}
+                                    onChange={(e) =>
+                                      setQuickValues({ ...quickValues, [key]: e.target.value })
+                                    }
+                                  />
+
+                                  <input
+                                    className="input"
+                                    placeholder="nota"
+                                    value={quickNotes[key] || ""}
+                                    onChange={(e) =>
+                                      setQuickNotes({ ...quickNotes, [key]: e.target.value })
+                                    }
+                                  />
+
+                                  <button onClick={() => guardarSerie(ej, serie)} className="btn-primary">
+                                    Guardar
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
@@ -777,8 +879,9 @@ export default function EntrenoPage() {
                 <section className="space-y-4">
                   <div className="rounded-[34px] bg-gradient-to-br from-[#11a36b] via-[#0f8a5d] to-[#064d35] p-6 text-white">
                     <p className="text-sm font-semibold text-white/70">Rutinas del mes</p>
-                    <h2 className="mt-2 text-5xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes}</h2>
-                    <p className="mt-3 text-sm text-white/70">completadas según tu objetivo mensual.</p>
+                    <h2 className="mt-2 text-5xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}</h2>
+                    <p className="mt-3 text-sm text-white/70">completadas sobre tu objetivo mensual.</p>
+                    <Progress value={porcentajeRutinasMes} light />
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-1">
@@ -812,13 +915,15 @@ export default function EntrenoPage() {
             </Panel>
 
             <Panel title="Agregar ejercicio a rutina">
-              <form onSubmit={agregarEjercicio} className="grid gap-3 md:grid-cols-[1fr_1fr_130px_130px_auto]">
+              <form onSubmit={agregarEjercicio} className="grid gap-3 md:grid-cols-[1fr_1fr_100px_130px_130px_auto]">
                 <select className="input" value={nuevoEjercicio.routine_id} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, routine_id: e.target.value })}>
                   <option value="">Elegir rutina</option>
                   {routines.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                 </select>
 
                 <input className="input" placeholder="Ejercicio" value={nuevoEjercicio.nombre} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, nombre: e.target.value })} />
+
+                <input className="input" type="number" min="1" placeholder="Series" value={nuevoEjercicio.series} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, series: e.target.value })} />
 
                 <select className="input" value={nuevoEjercicio.unidad} onChange={(e) => setNuevoEjercicio({ ...nuevoEjercicio, unidad: e.target.value })}>
                   <option value="reps">reps</option>
@@ -840,13 +945,50 @@ export default function EntrenoPage() {
 
             <div className="grid gap-5 lg:grid-cols-2">
               {routines.map((r) => (
-                <Panel key={r.id} title={`${r.name} · ${r.days_per_week}x semana`}>
+                <Panel key={r.id} title="Editar rutina">
+                  <div className="mb-4 grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <input
+                      className="input"
+                      value={editRoutine[r.id]?.name || r.name}
+                      onChange={(e) =>
+                        setEditRoutine({
+                          ...editRoutine,
+                          [r.id]: {
+                            ...(editRoutine[r.id] || { name: r.name, days_per_week: String(r.days_per_week) }),
+                            name: e.target.value,
+                          },
+                        })
+                      }
+                    />
+
+                    <input
+                      className="input"
+                      type="number"
+                      min="1"
+                      max="7"
+                      value={editRoutine[r.id]?.days_per_week || String(r.days_per_week)}
+                      onChange={(e) =>
+                        setEditRoutine({
+                          ...editRoutine,
+                          [r.id]: {
+                            ...(editRoutine[r.id] || { name: r.name, days_per_week: String(r.days_per_week) }),
+                            days_per_week: e.target.value,
+                          },
+                        })
+                      }
+                    />
+
+                    <button onClick={() => actualizarRutina(r)} className="btn-primary">
+                      Guardar
+                    </button>
+                  </div>
+
                   <div className="space-y-2">
                     {routineExercises.filter((e) => e.routine_id === r.id).map((e) => (
                       <div key={e.id} className="flex items-center justify-between rounded-2xl bg-[#f4fbf7] p-3">
                         <div>
                           <b>{e.nombre}</b>
-                          <p className="text-sm text-[#5f7f70]">{e.tipo} · {e.unidad}</p>
+                          <p className="text-sm text-[#5f7f70]">{e.series} series · {e.tipo} · {e.unidad}</p>
                         </div>
                         <button onClick={() => borrarEjercicio(e.id)} className="rounded-xl bg-red-50 px-3 py-2 font-black text-red-600">
                           Borrar
@@ -882,10 +1024,28 @@ export default function EntrenoPage() {
 
             <div className="grid gap-3 md:grid-cols-4">
               <Big title="Días entrenados" value={String(diasEntrenadosMes)} />
-              <Big title="Rutinas mes" value={`${rutinasCompletadasMes}/${rutinasObjetivoMes}`} />
+              <Big title="Rutinas mes" value={`${rutinasCompletadasMes}/${rutinasObjetivoMes || "-"}`} />
               <Big title="Km mes" value={`${totalKmMes.toFixed(2)} km`} />
               <Big title="Mejor marca" value={mejorMarca || "-"} dark />
             </div>
+
+            <Panel title="Objetivo mensual de entrenamientos">
+              <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  placeholder="Ej: 14 entrenamientos este mes"
+                  value={rutinasObjetivoMes || ""}
+                  onChange={(e) => guardarObjetivoMensual(Number(e.target.value))}
+                />
+                <div className="rounded-2xl bg-[#f4fbf7] p-4 text-center">
+                  <p className="text-sm font-bold text-[#5f7f70]">Progreso</p>
+                  <p className="text-2xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}</p>
+                </div>
+              </div>
+              <Progress value={porcentajeRutinasMes} />
+            </Panel>
 
             <Panel title="Comparación de semanas">
               <div className="grid gap-3 md:grid-cols-2">
@@ -972,7 +1132,25 @@ export default function EntrenoPage() {
 
         {vista === "objetivos" && (
           <section className="space-y-5">
-            <Panel title="Nuevo objetivo">
+            <Panel title="Objetivo mensual de entrenamientos">
+              <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  placeholder="Ej: 14 entrenamientos este mes"
+                  value={rutinasObjetivoMes || ""}
+                  onChange={(e) => guardarObjetivoMensual(Number(e.target.value))}
+                />
+                <div className="rounded-2xl bg-[#f4fbf7] p-4 text-center">
+                  <p className="text-sm font-bold text-[#5f7f70]">Progreso</p>
+                  <p className="text-2xl font-black">{rutinasCompletadasMes}/{rutinasObjetivoMes || "-"}</p>
+                </div>
+              </div>
+              <Progress value={porcentajeRutinasMes} />
+            </Panel>
+
+            <Panel title="Nuevo objetivo por ejercicio">
               <form onSubmit={guardarObjetivo} className="grid gap-3 md:grid-cols-[1fr_140px_120px_1fr_auto]">
                 <input className="input" placeholder="Ejercicio" value={goalForm.ejercicio} onChange={(e) => setGoalForm({ ...goalForm, ejercicio: e.target.value })} />
                 <input className="input" type="number" step="0.01" placeholder="Objetivo" value={goalForm.objetivo} onChange={(e) => setGoalForm({ ...goalForm, objetivo: e.target.value })} />
@@ -982,12 +1160,12 @@ export default function EntrenoPage() {
                   <option value="min">min</option>
                   <option value="kg">kg</option>
                 </select>
-                <input className="input" placeholder="Nota: semanal o mensual" value={goalForm.nota} onChange={(e) => setGoalForm({ ...goalForm, nota: e.target.value })} />
+                <input className="input" placeholder="Nota" value={goalForm.nota} onChange={(e) => setGoalForm({ ...goalForm, nota: e.target.value })} />
                 <button className="btn-primary">Agregar</button>
               </form>
             </Panel>
 
-            <ObjetivosPanel title="Objetivos" goals={goals} entries={entries} onDelete={borrarObjetivo} />
+            <ObjetivosPanel title="Objetivos por ejercicio" goals={goals} entries={entries} onDelete={borrarObjetivo} />
           </section>
         )}
       </div>
@@ -1026,12 +1204,6 @@ export default function EntrenoPage() {
       `}</style>
     </main>
   );
-}
-
-function semanasDelMes(mes: string) {
-  const [anio, mesNum] = mes.split("-").map(Number);
-  const dias = new Date(anio, mesNum, 0).getDate();
-  return Math.ceil(dias / 7);
 }
 
 function getSemanaActual() {
@@ -1244,13 +1416,13 @@ function ObjetivosPanel({
   );
 }
 
-function Progress({ value }: { value: number }) {
+function Progress({ value, light }: { value: number; light?: boolean }) {
   const v = Math.min(Math.max(value, 0), 100);
 
   return (
-    <div className="mt-3 h-3 overflow-hidden rounded-full bg-[#d8f0e5]">
+    <div className={light ? "mt-3 h-3 overflow-hidden rounded-full bg-white/30" : "mt-3 h-3 overflow-hidden rounded-full bg-[#d8f0e5]"}>
       <div
-        className={value >= 100 ? "h-full rounded-full bg-[#11a36b]" : "h-full rounded-full bg-gradient-to-r from-[#4ade80] to-[#0f7a4f]"}
+        className={light ? "h-full rounded-full bg-white" : value >= 100 ? "h-full rounded-full bg-[#11a36b]" : "h-full rounded-full bg-gradient-to-r from-[#4ade80] to-[#0f7a4f]"}
         style={{ width: `${v}%` }}
       />
     </div>
